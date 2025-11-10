@@ -1,9 +1,10 @@
-import pygame
+import keyboard, sys, etc
 
-pygame.init()
 
-running = True
-while running:
-    for event in pygame.event():
+print("a")
 
-        
+keyboard.add_hotkey('spacebar', print, args=('The quick brown fox jumps over the lazy dog.'))
+keyboard.add_hotkey('w', print, args=('triggered', 'hotkey'))
+keyboard.wait('esc')
+
+keyboard.wait()
