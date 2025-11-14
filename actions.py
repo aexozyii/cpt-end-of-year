@@ -103,9 +103,8 @@ def toggle_inventory():
     if not state.has_bag:
         return
     if state.game_state == 'inventory':
-        state.game_state = 'explore'
-        render.clear_screen()
-        render.render_map()
+        # Return to menu instead of map
+        render.switch_to_menu()
     else:
         state.game_state = 'inventory'
         render.display_inventory()

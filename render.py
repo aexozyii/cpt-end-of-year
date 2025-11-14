@@ -18,7 +18,7 @@ def center_text(text: str) -> str:
 def display_incremental():
     if state.game_state != 'incremental':
         return
-    print('\033[H', end='', flush=True)
+    clear_screen()
     title = 'game placeholder'
     counter = f'Total Currency: {state.count}'
     prompt = f'(Press SPACE to earn +{state.per_click} | Press ESC to quit)'
@@ -59,7 +59,7 @@ def display_shop():
 def display_inventory():
     if not state.has_bag:
         return
-    print('\033[H', end='', flush=True)
+    clear_screen()
     title = 'INVENTORY'
     lines = [title, '', f'Slots: {len(state.inventory)}/{state.inventory_capacity}', '']
     if not state.inventory:
@@ -110,6 +110,7 @@ def display_menu():
 
 def switch_to_incremental():
     state.game_state = 'incremental'
+    clear_screen()
     display_incremental()
 
 
