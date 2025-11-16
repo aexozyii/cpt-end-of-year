@@ -1,15 +1,17 @@
 import threading
+import random
+import os
 
-# --- Shared game state ---
 count = 0
 per_click = 1
-# view state: 'menu', 'incremental', 'explore', 'shop', 'inventory'
-game_state = 'menu'
+game_state = 'start_menu'
 
 movement_lock = threading.Lock()
 last_space_time = 0.0
+MOVE_INTERVAL = 0.15
+last_move_time = 0.0
+space_pressed = False
 
-import os
 SAVE_FILE = os.path.join(os.path.dirname(__file__), 'save.json')
 
 # incremental upgrades
@@ -50,14 +52,32 @@ def create_map():
     for y in range(ROOM_HEIGHT):
         game_map[y][0] = WALL_CHAR
         game_map[y][ROOM_WIDTH - 1] = WALL_CHAR
+    avail = [(y, x)
+            for y in range(1, ROOM_HEIGHT - 1)
+            for x in range(1, ROOM_WIDTH - 1)
+            if not (y == player_y and x == player_x)]
+    shop_pos = random.choice(avail)
+    ty, tx = shop_pos
+    global TELEPORTS
+    TELEPORTS = {shop_pos: 'shop'}
+    occupied = {shop_pos}
+    num_exclaims = random.randint(1, 2)
+    num_enemies = random.randint(1, 2)
+    remaining = [p for p in avail if p not in occupied]
+    random.shuffle(remaining)
+    take = num_exclaims + num_enemies
+    chosen = remaining[:take]
+    exclaim_positions = chosen[:num_exclaims]
+    enemy_positions = chosen[num_exclaims: num_exclaims + num_enemies]
+    for (ey, ex) in exclaim_positions:
+        game_map[ey][ex] = '!'
+    for (ey, ex) in enemy_positions:
+        game_map[ey][ex] = 'E'
+
     return game_map
 
 current_map = create_map()
 
-# Teleport tiles: (y,x) -> feature
-TELEPORTS = {
-    (1, ROOM_WIDTH // 2): 'shop'
-}
 
 # temporary holders for feature transitions
 prev_state = None

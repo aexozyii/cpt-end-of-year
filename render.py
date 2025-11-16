@@ -1,6 +1,7 @@
 import os
 import shutil
 import state
+import persistence
 
 
 def clear_screen():
@@ -15,10 +16,24 @@ def center_text(text: str) -> str:
     return '\n' * vertical_padding + '\n'.join(centered_lines)
 
 
+def display_start_menu():
+    """Display the initial start menu (New Game / Load Game)."""
+    if state.game_state != 'start_menu':
+        return
+    clear_screen()
+    lines = ['GAME MENU', '==========', '']
+    lines.append('[1] New Game')
+    if persistence.has_save_file():
+        lines.append('[2] Load Game')
+    lines.append('[ESC] Exit')
+    menu_text = '\n'.join(lines) + '\n'
+    print(center_text(menu_text))
+
+
 def display_incremental():
     if state.game_state != 'incremental':
         return
-    clear_screen()
+    print('\033[H', end='', flush=True)
     title = 'game placeholder'
     counter = f'Total Currency: {state.count}'
     prompt = f'(Press SPACE to earn +{state.per_click} | Press ESC to quit)'
@@ -36,7 +51,16 @@ def display_shop():
         return
     print('\033[H', end='', flush=True)
     title = 'SHOP'
-    lines = [title, '', 'Welcome to the shop!', '', 'Buy items with the number keys:', '']
+    lines = [
+        title,
+        '',
+        'Welcome to the shop!',
+        '',
+        '[B] Return to Map',
+        '',
+        'Buy items with the number keys:',
+        '',
+    ]
     for item in state.shop_items:
         if item['purchased']:
             status = '(PURCHASED)'

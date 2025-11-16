@@ -11,8 +11,12 @@ def save_game():
             'per_click': state.per_click,
             'player_x': state.player_x,
             'player_y': state.player_y,
-            'upgrades': {upg['key']: upg['purchased'] for upg in state.upgrades},
-            'shop': {item['key']: item['purchased'] for item in state.shop_items},
+            'upgrades': {
+                    upg['key']: upg['purchased']
+                    for upg in state.upgrades},
+            'shop': {
+                item['key']: item['purchased']
+                for item in state.shop_items},
             'attack': state.attack,
             'defense': state.defense,
             'has_bag': state.has_bag,
@@ -49,7 +53,29 @@ def load_game():
         state.defense = int(s.get('defense', state.defense))
         state.has_bag = bool(s.get('has_bag', state.has_bag))
         state.inventory = s.get('inventory', state.inventory)
-        state.inventory_capacity = int(s.get('inventory_capacity', state.inventory_capacity))
+        state.inventory_capacity = int(
+            s.get('inventory_capacity', state.inventory_capacity))
     except Exception:
-        # ignore corrupt save
         return
+
+
+def has_save_file():
+    """Check if a save file exists."""
+    return os.path.exists(state.SAVE_FILE)
+
+
+def reset_game():
+    """Reset all game state to defaults for a new game."""
+    state.count = 0
+    state.per_click = 1
+    state.player_x = state.ROOM_WIDTH // 2
+    state.player_y = state.ROOM_HEIGHT // 2
+    state.attack = 0
+    state.defense = 0
+    state.has_bag = False
+    state.inventory = []
+    state.inventory_capacity = 0
+    for upg in state.upgrades:
+        upg['purchased'] = False
+    for item in state.shop_items:
+        item['purchased'] = False
