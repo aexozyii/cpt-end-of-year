@@ -13,6 +13,8 @@ colorama.init(autoreset=True)
 
 count = 0
 per_click = 1
+# track the highest currency reached during the current run (used for meta reward)
+run_max_count = 0
 game_state = 'start_menu'
 
 movement_lock = threading.Lock()
@@ -25,9 +27,15 @@ SAVE_FILE = os.path.join(os.path.dirname(__file__), 'save.json')
 
 # incremental upgrades
 upgrades = [
-    {'key': '1', 'name': 'Better Fingers', 'cost': 10,  'type': 'add',  'amount': 1, 'purchased': False},
-    {'key': '2', 'name': 'Auto Clicker',  'cost': 50,  'type': 'add',  'amount': 5, 'purchased': False},
-    {'key': '3', 'name': 'Double Tap',    'cost': 200, 'type': 'mult', 'amount': 2, 'purchased': False},
+    {'key': '1', 'name': 'top left', 'cost': 10,   'type': 'add',  'amount': 1,  'purchased': False},
+    {'key': '2', 'name': 'sumsum',  'cost': 50,   'type': 'add',  'amount': 5,  'purchased': False},
+    {'key': '3', 'name': 'dt',    'cost': 200,  'type': 'mult', 'amount': 2,  'purchased': False},
+    {'key': '4', 'name': 'bottom right', 'cost': 500,  'type': 'add',  'amount': 10, 'purchased': False, 'meta_req': 'unlock_tier1'},
+    {'key': '5', 'name': 'my ball', 'cost': 1200, 'type': 'mult', 'amount': 1.5,'purchased': False, 'meta_req': 'unlock_tier1'},
+    {'key': '6', 'name': 'yo bro...','cost': 3000, 'type': 'add',  'amount': 50, 'purchased': False, 'meta_req': 'unlock_tier1'},
+    {'key': '7', 'name': 'Whatever you do, at the crossroads, do NOT turn left.',    'cost': 7000, 'type': 'mult', 'amount': 2,  'purchased': False, 'meta_req': 'unlock_tier2'},
+    {'key': '8', 'name': 'yo bro. js play the game alrdy',  'cost': 15000,'type': 'add',  'amount': 200, 'purchased': False, 'meta_req': 'unlock_tier2'},
+    {'key': '9', 'name': 'bro',  'cost': 50000,'type': 'mult', 'amount': 3,  'purchased': False, 'meta_req': 'unlock_tier2'},
 ]
 
 # Shop items
@@ -127,6 +135,23 @@ except NameError:
 # Current battle state
 current_battle_enemy = None
 current_battle_pos = None
+
+# --- Meta / roguelite persistent progression ---
+# Meta currency gained on death and spent on persistent upgrades
+meta_currency = 0
+# Meta upgrades definition
+meta_upgrades = [
+    {'key': '1', 'id': 'unlock_tier1', 'name': 'Unlock Tier I', 'cost': 5, 'desc': 'Unlock upgrades 4-6', 'purchased': False},
+    {'key': '2', 'id': 'unlock_tier2', 'name': 'Unlock Tier II', 'cost': 20, 'desc': 'Unlock upgrades 7-9 (requires Tier I)', 'purchased': False},
+    {'key': '3', 'id': 'start_per_click', 'name': 'Starter Hands', 'cost': 10, 'desc': 'Start each run with +1 per-click', 'purchased': False},
+    {'key': '4', 'id': 'start_attack', 'name': 'Warrior Start', 'cost': 15, 'desc': 'Start each run with +5 attack', 'purchased': False},
+]
+# quick lookup mapping id->purchased (kept in sync by persistence)
+meta_upgrades_state = {m['id']: m['purchased'] for m in meta_upgrades}
+
+# persistent meta bonuses
+meta_start_per_click = 0
+meta_start_attack = 0
 
 
 def compute_weapon_attack(level: int, A0: float = 20.0, ra: float = 1.12) -> float:

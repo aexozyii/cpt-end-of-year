@@ -23,6 +23,10 @@ def save_game():
             'inventory': state.inventory,
             'equipped_weapon': state.equipped_weapon,
             'equipped_armour': state.equipped_armour,
+            'meta_currency': state.meta_currency,
+            'meta_upgrades': {m['id']: m['purchased'] for m in state.meta_upgrades},
+            'meta_start_per_click': state.meta_start_per_click,
+            'meta_start_attack': state.meta_start_attack,
             'inventory_capacity': state.inventory_capacity,
         }
         with open(state.SAVE_FILE, 'w', encoding='utf-8') as f:
@@ -57,6 +61,18 @@ def load_game():
         state.inventory = s.get('inventory', state.inventory)
         state.equipped_weapon = s.get('equipped_weapon', state.equipped_weapon)
         state.equipped_armour = s.get('equipped_armour', state.equipped_armour)
+        # load meta progression
+        state.meta_currency = int(s.get('meta_currency', state.meta_currency))
+        saved_meta = s.get('meta_upgrades', {})
+        for m in state.meta_upgrades:
+            m['purchased'] = bool(saved_meta.get(m['id'], False))
+        # update lookup state
+        try:
+            state.meta_upgrades_state = {m['id']: m['purchased'] for m in state.meta_upgrades}
+        except Exception:
+            pass
+        state.meta_start_per_click = int(s.get('meta_start_per_click', state.meta_start_per_click))
+        state.meta_start_attack = int(s.get('meta_start_attack', state.meta_start_attack))
         state.inventory_capacity = int(
             s.get('inventory_capacity', state.inventory_capacity))
     except Exception:
@@ -85,3 +101,29 @@ def reset_game():
         upg['purchased'] = False
     for item in state.shop_items:
         item['purchased'] = False
+
+
+def reset_run():
+    """Reset run-specific state after a death (keep meta progression)."""
+    state.count = 0
+    state.per_click = 1 + getattr(state, 'meta_start_per_click', 0)
+    state.player_x = state.ROOM_WIDTH // 2
+    state.player_y = state.ROOM_HEIGHT // 2
+    state.attack = 0 + getattr(state, 'meta_start_attack', 0)
+    state.defense = 0
+    state.has_bag = False
+    state.inventory = []
+    state.inventory_capacity = 0
+    state.equipped_weapon = None
+    state.equipped_armour = None
+    for upg in state.upgrades:
+        upg['purchased'] = False
+    for item in state.shop_items:
+        item['purchased'] = False
+    # regenerate map and enemies
+    state.current_map = state.create_map()
+    # reset run-specific tracking
+    try:
+        state.run_max_count = 0
+    except Exception:
+        pass

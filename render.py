@@ -2,6 +2,7 @@ import os
 import shutil
 import state
 import persistence
+import time
 
 
 def clear_screen():
@@ -40,9 +41,37 @@ def display_incremental():
     lines = [title, '', counter, '', prompt, '']
     lines.append('Upgrades:')
     for upg in state.upgrades:
-        status = '(PURCHASED)' if upg['purchased'] else f'Cost: {upg["cost"]}'
+        if upg.get('purchased'):
+            status = '(PURCHASED)'
+        else:
+            # show locked status when upgrade requires a meta unlock
+            meta_req = upg.get('meta_req')
+            if meta_req and not state.meta_upgrades_state.get(meta_req, False):
+                status = '(LOCKED)'
+            else:
+                status = f'Cost: {upg["cost"]}'
         effect = f'+{upg["amount"]}/click' if upg['type'] == 'add' else f'x{upg["amount"]}/click'
         lines.append(f'[{upg["key"]}] {upg["name"]} - {effect} {status}')
+    print(center_text('\n'.join(lines)))
+
+
+def display_meta_upgrades(meta_gain: int = 0):
+    """Show meta-upgrade screen where player spends meta-currency after death.
+    `meta_gain` is how much was just awarded this death (for messaging).
+    """
+    if state.game_state != 'meta':
+        return
+    clear_screen()
+    title = 'META UPGRADES'
+    lines = [title, '', f'You earned +{meta_gain} meta-currency this run!', f'Meta Currency: {state.meta_currency}', '']
+    lines.append('Buy persistent upgrades with number keys:')
+    lines.append('')
+    for m in state.meta_upgrades:
+        status = '(PURCHASED)' if m.get('purchased') else f'Cost: {m.get("cost")}'
+        lines.append(f'[{m.get("key")}] {m.get("name")} - {m.get("desc")} {status}')
+    lines.append('')
+    lines.append('[B] Finish and start a new run')
+    lines.append('(Press the number key to buy, B to finish)')
     print(center_text('\n'.join(lines)))
 
 
@@ -115,6 +144,28 @@ def display_inventory():
     print(center_text('\n'.join(lines)))
 
 
+def flash_message(msg: str, delay: float = 0.8):
+    """Show a brief centered message then re-render current view."""
+    clear_screen()
+    print(center_text(msg))
+    time.sleep(delay)
+    # re-render according to current state
+    if state.game_state == 'menu':
+        display_menu()
+    elif state.game_state == 'incremental':
+        display_incremental()
+    elif state.game_state == 'explore':
+        render_map()
+    elif state.game_state == 'shop':
+        display_shop()
+    elif state.game_state == 'inventory':
+        display_inventory()
+    elif state.game_state == 'battle':
+        display_battle()
+    elif state.game_state == 'meta':
+        display_meta_upgrades(0)
+
+
 def render_map():
     if state.game_state != 'explore':
         return
@@ -182,12 +233,20 @@ def display_menu():
 
 
 def switch_to_incremental():
+    # Only allow opening incremental view from the main menu
+    if state.game_state != 'menu':
+        # silently block when not in main menu
+        return
     state.game_state = 'incremental'
     clear_screen()
     display_incremental()
 
 
 def switch_to_map():
+    # Only allow opening the map from the main menu
+    if state.game_state != 'menu':
+        # silently block when not in main menu
+        return
     # When opening the map via the menu, place the player at the map center
     state.game_state = 'explore'
     # center inside the walls

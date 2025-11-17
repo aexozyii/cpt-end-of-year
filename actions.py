@@ -17,11 +17,17 @@ def on_space():
         return
     state.space_pressed = True
     now = time.time()
-    min_interval = 1.0 / 10.0
+    min_interval = 1.0 / 15.0
     if now - state.last_space_time < min_interval:
         return
     state.last_space_time = now
     state.count += state.per_click
+    # update run high-water mark for meta reward calculation
+    try:
+        if state.count > getattr(state, 'run_max_count', 0):
+            state.run_max_count = state.count
+    except Exception:
+        pass
     if state.game_state == 'incremental':
         render.display_incremental()
 
@@ -61,6 +67,11 @@ def buy_upgrade_key(key: str):
     for upg in state.upgrades:
         if upg['key'] == key:
             if upg['purchased']:
+                return
+            # enforce meta gating if applicable
+            meta_req = upg.get('meta_req')
+            if meta_req and not state.meta_upgrades_state.get(meta_req, False):
+                render.flash_message('Upgrade locked. Unlock via Meta Upgrades')
                 return
             if state.count < upg['cost']:
                 return
@@ -125,6 +136,7 @@ def buy_shop_item(key: str):
                 state.has_bag = True
                 state.inventory_capacity += item['amount'] * 10
             state.inventory.append(item_obj)
+            # buying doesn't increase run_max, but future income might
             persistence.save_game()
             break
     render.display_shop()
@@ -201,6 +213,17 @@ def enter_feature(name: str):
 
 def return_from_shop():
     if state.game_state != 'shop':
+        # also allow finishing meta-upgrade screen with the same key
+        if state.game_state == 'meta':
+            # finish meta purchases: load saved persistent state and go to in-game menu
+            # ensure HP is restored for next run
+            state.player_hp = state.player_max_hp
+            # reload the saved persistent file so meta progression persists
+            if persistence.has_save_file():
+                persistence.load_game()
+            # go to the main in-game menu
+            state.game_state = 'menu'
+            render.display_menu()
         return
     prev_pos = state.prev_player_pos
     if isinstance(prev_pos, tuple) and len(prev_pos) == 2:
@@ -212,15 +235,50 @@ def return_from_shop():
     render.render_map()
 
 
+def buy_meta_upgrade(key: str):
+    """Buy a persistent meta-upgrade when on the meta screen."""
+    if state.game_state != 'meta':
+        return
+    for m in state.meta_upgrades:
+        if m['key'] == key:
+            if m.get('purchased'):
+                return
+            cost = int(m.get('cost', 0))
+            if state.meta_currency < cost:
+                return
+            # purchase it
+            state.meta_currency -= cost
+            m['purchased'] = True
+            # apply persistent effects
+            mid = m.get('id')
+            if mid == 'unlock_tier1':
+                state.meta_upgrades_state['unlock_tier1'] = True
+            if mid == 'unlock_tier2':
+                state.meta_upgrades_state['unlock_tier2'] = True
+            if mid == 'start_per_click':
+                state.meta_start_per_click = int(state.meta_start_per_click) + 1
+            if mid == 'start_attack':
+                state.meta_start_attack = int(state.meta_start_attack) + 5
+            # persist meta purchases
+            persistence.save_game()
+            break
+    # re-render meta UI
+    render.display_meta_upgrades(0)
+
+
 def toggle_inventory():
     if not state.has_bag:
         return
+    # Only allow opening inventory from the main menu
     if state.game_state == 'inventory':
         # Return to menu instead of map
         render.switch_to_menu()
-    else:
-        state.game_state = 'inventory'
-        render.display_inventory()
+        return
+    if state.game_state != 'menu':
+        # silently block opening inventory from non-menu states
+        return
+    state.game_state = 'inventory'
+    render.display_inventory()
 
 
 def enter_battle(pos):
@@ -249,6 +307,12 @@ def battle_attack():
         # enemy defeated
         reward = enemy.get('reward', 0)
         state.count += reward
+        # update run high-water mark after reward
+        try:
+            if state.count > getattr(state, 'run_max_count', 0):
+                state.run_max_count = state.count
+        except Exception:
+            pass
         # remove enemy from map
         try:
             del state.enemies[state.current_battle_pos]
@@ -269,15 +333,19 @@ def battle_attack():
         render.display_death_splash()
         # give player a moment to see the splash
         time.sleep(3)
-        # reset everything (currencies, inventory, upgrades, equipped, etc.)
-        persistence.reset_game()
-        # ensure HP is restored for next run
-        state.player_hp = state.player_max_hp
-        # persist reset state (overwrites any previous save)
+        # compute meta reward based on run progress (simple formula)
+        # reward = floor(run_max_count / 1000), minimum 1
+        try:
+            run_best = int(getattr(state, 'run_max_count', 0))
+        except Exception:
+            run_best = 0
+        meta_reward = max(1, run_best // 1000)
+        state.meta_currency = getattr(state, 'meta_currency', 0) + meta_reward
         persistence.save_game()
-        # return to start menu
-        state.game_state = 'start_menu'
-        render.display_start_menu()
+        # switch to meta-upgrade screen so player can spend meta currency
+        state.game_state = 'meta'
+        render.display_meta_upgrades(meta_reward)
+        # When player finishes spending (press B), return_from_shop will handle finishing and call reset_run
         return
 
     # still alive: update battle screen
@@ -324,4 +392,7 @@ def handle_number_key(key: str):
         return
     if state.game_state == 'incremental':
         buy_upgrade_key(key)
+        return
+    if state.game_state == 'meta':
+        buy_meta_upgrade(key)
         return
