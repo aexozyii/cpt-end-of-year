@@ -21,6 +21,8 @@ def save_game():
             'defense': state.defense,
             'has_bag': state.has_bag,
             'inventory': state.inventory,
+            'equipped_weapon': state.equipped_weapon,
+            'equipped_armour': state.equipped_armour,
             'inventory_capacity': state.inventory_capacity,
         }
         with open(state.SAVE_FILE, 'w', encoding='utf-8') as f:
@@ -53,6 +55,8 @@ def load_game():
         state.defense = int(s.get('defense', state.defense))
         state.has_bag = bool(s.get('has_bag', state.has_bag))
         state.inventory = s.get('inventory', state.inventory)
+        state.equipped_weapon = s.get('equipped_weapon', state.equipped_weapon)
+        state.equipped_armour = s.get('equipped_armour', state.equipped_armour)
         state.inventory_capacity = int(
             s.get('inventory_capacity', state.inventory_capacity))
     except Exception:
@@ -75,6 +79,8 @@ def reset_game():
     state.has_bag = False
     state.inventory = []
     state.inventory_capacity = 0
+    state.equipped_weapon = None
+    state.equipped_armour = None
     for upg in state.upgrades:
         upg['purchased'] = False
     for item in state.shop_items:

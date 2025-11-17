@@ -1,1 +1,1 @@
-{"count": 2531, "per_click": 14, "player_x": 10, "player_y": 1, "upgrades": {"1": true, "2": true, "3": true}, "shop": {"1": true, "2": true, "3": true}, "attack": 5, "defense": 5, "has_bag": true, "inventory": ["Sword", "Armour", "Bag"], "inventory_capacity": 10}
+{"count": 11, "per_click": 1, "player_x": 10, "player_y": 5, "upgrades": {"1": false, "2": false, "3": false}, "shop": {"1": false, "2": false, "3": false}, "attack": 0, "defense": 0, "has_bag": false, "inventory": [], "equipped_weapon": null, "equipped_armour": null, "inventory_capacity": 0}

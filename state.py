@@ -1,6 +1,15 @@
 import threading
 import random
-import os
+import os, subprocess, sys
+try:
+    import colorama
+    from colorama import Fore, Style
+except ImportError:
+    subprocess.check_call(sys.executable["-m", "pip", "install", "colorama"])
+    import colorama
+    from colorama import Fore, Style
+colorama.init(autoreset=True)
+
 
 count = 0
 per_click = 1
@@ -34,11 +43,14 @@ defense = 0
 has_bag = False
 inventory = []
 inventory_capacity = 0
+# equipped items
+equipped_weapon = None  # dict or None
+equipped_armour = None  # dict or None
 
 # Map constants
 ROOM_WIDTH = 20
 ROOM_HEIGHT = 10
-PLAYER_CHAR = '~'
+PLAYER_CHAR = f'{Fore.LIGHTRED_EX}~{Style.RESET_ALL}'
 WALL_CHAR = '|'
 FLOOR_CHAR = '.'
 player_y, player_x = 4, 10
@@ -71,8 +83,27 @@ def create_map():
     enemy_positions = chosen[num_exclaims: num_exclaims + num_enemies]
     for (ey, ex) in exclaim_positions:
         game_map[ey][ex] = '!'
+    # create enemy entries (do not write to map here; render will show them)
+    global enemies
+    enemies = {}
     for (ey, ex) in enemy_positions:
-        game_map[ey][ex] = 'E'
+        # randomly choose enemy type/stats
+        if random.random() < 0.6:
+            enemies[(ey, ex)] = {
+                'name': 'Human',
+                'hp': 80,
+                'atk': 4,
+                'reward': 200,
+                'ascii': '  ,      ,\n (\_/)\n (o.o)\n  >^ '
+            }
+        else:
+            enemies[(ey, ex)] = {
+                'name': 'Dart Monkey',
+                'hp': 130,
+                'atk': 12,
+                'reward': 450,
+                'ascii': "  ,--.\n (____)\n /||\\\\\n  ||"
+            }
 
     return game_map
 
@@ -82,3 +113,27 @@ current_map = create_map()
 # temporary holders for feature transitions
 prev_state = None
 prev_player_pos = None
+
+# Player HP
+player_max_hp = 20               
+player_hp = player_max_hp
+
+# enemies will be created by create_map(); ensure variable exists
+try:
+    enemies
+except NameError:
+    enemies = {}
+
+# Current battle state
+current_battle_enemy = None
+current_battle_pos = None
+
+
+def compute_weapon_attack(level: int, A0: float = 20.0, ra: float = 1.12) -> float:
+    """Compute weapon attack for given level using A = A0 * ra ** level."""
+    return A0 * (ra ** level)
+
+
+def compute_armour_defense(level: int, D0: float = 15.0, rd: float = 1.1253333) -> float:
+    """Compute armor defense for given level using D = D0 * rd ** level."""
+    return D0 * (rd ** level)
