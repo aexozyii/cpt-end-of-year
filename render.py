@@ -90,9 +90,28 @@ def display_inventory():
         lines.append('(empty)')
     else:
         for i, it in enumerate(state.inventory, 1):
-            lines.append(f'{i}. {it}')
+            if isinstance(it, dict):
+                name = it.get('name', 'item')
+                lvl = it.get('level', 1)
+                itype = it.get('type', '')
+                equipped = False
+                if state.equipped_weapon and state.equipped_weapon.get('name') == name:
+                    equipped = True
+                if state.equipped_armour and state.equipped_armour.get('name') == name:
+                    equipped = True
+                lines.append(f'{i}. {name} (level {lvl}) [{itype}]' + (' [EQUIPPED]' if equipped else ''))
+                # add ascii art below the item
+                ascii_art = it.get('ascii', '')
+                if ascii_art:
+                    for art_line in ascii_art.split('\n'):
+                        if art_line.strip() == '':
+                            continue
+                        lines.append('    ' + art_line)
+            else:
+                lines.append(f'{i}. {it}')
     lines.append('')
     lines.append('Press I to close inventory')
+    lines.append('Press the number key to equip a sword/armour.')
     print(center_text('\n'.join(lines)))
 
 
@@ -101,13 +120,43 @@ def render_map():
         return
     print('\033[H', end='', flush=True)
     display_map = [row[:] for row in state.current_map]
+    # draw teleport markers
     for (ty, tx), feature in state.TELEPORTS.items():
         if 0 <= ty < state.ROOM_HEIGHT and 0 <= tx < state.ROOM_WIDTH:
             if not (ty == state.player_y and tx == state.player_x):
                 display_map[ty][tx] = 'S'
+    # draw enemies (alive)
+    for (ey, ex), enemy in list(state.enemies.items()):
+        if 0 <= ey < state.ROOM_HEIGHT and 0 <= ex < state.ROOM_WIDTH:
+            # don't overwrite player char if standing on it
+            if not (ey == state.player_y and ex == state.player_x):
+                display_map[ey][ex] = 'E'
     display_map[state.player_y][state.player_x] = state.PLAYER_CHAR
     map_str = '\n'.join([''.join(row) for row in display_map])
     print(center_text(map_str + '\n\nUse WASD to move. Press Q to return to menu. Press ESC to exit.'))
+
+
+def display_battle():
+    if state.game_state != 'battle' or not state.current_battle_enemy:
+        return
+    clear_screen()
+    enemy = state.current_battle_enemy
+    title = f"BATTLE: {enemy.get('name', 'Enemy')}"
+    lines = [title, '', enemy.get('ascii', ''), '']
+    lines.append(f"Enemy HP: {enemy.get('hp', 0)}")
+    lines.append(f"Your HP: {state.player_hp}/{state.player_max_hp}")
+    lines.append('')
+    lines.append('[F] Attack    [L] Flee')
+    lines.append('\n(Press F to attack, L to flee)')
+    print(center_text('\n'.join(lines)))
+
+
+def display_death_splash():
+    """Show a death splash screen (rogue-lite reset)."""
+    clear_screen()
+    lines = ['YOU DIED', '']
+    lines.append('')
+    print(center_text('\n'.join(lines)))
 
 
 def display_menu():

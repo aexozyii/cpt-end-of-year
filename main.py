@@ -75,35 +75,9 @@ shop_items = [
 
 
 keyboard.add_hotkey('space', actions.on_space)
-keyboard.add_hotkey(
-    '1',
-    lambda: (
-        actions.start_new_game()
-        if state.game_state == 'start_menu'
-        else actions.buy_upgrade_key('1')
-    )
-)
-keyboard.add_hotkey(
-    '2',
-    lambda: (
-        actions.load_game_from_menu()
-        if state.game_state == 'start_menu'
-        else actions.buy_upgrade_key('2')
-    )
-)
-for upg in state.upgrades:
-    key = upg['key']
-    if key not in ['1', '2']:
-        keyboard.add_hotkey(
-            key,
-            lambda k=key: actions.buy_upgrade_key(k)
-        )
-for item in state.shop_items:
-    key = item['key']
-    keyboard.add_hotkey(
-        key,
-        lambda k=key: actions.buy_shop_item(k)
-    )
+# Register numeric keys 1-9 to a dispatcher that behaves based on current view
+for k in list('123456789'):
+    keyboard.add_hotkey(k, lambda key=k: actions.handle_number_key(key))
 
 
 keyboard.add_hotkey('r', render.switch_to_incremental)
@@ -111,6 +85,8 @@ keyboard.add_hotkey('m', render.switch_to_map)
 keyboard.add_hotkey('q', render.switch_to_menu)
 keyboard.add_hotkey('b', actions.return_from_shop)
 keyboard.add_hotkey('i', actions.toggle_inventory)
+keyboard.add_hotkey('f', actions.battle_attack)
+keyboard.add_hotkey('l', actions.flee_battle)
 keyboard.on_release_key('space', lambda e: actions.on_space_release())
 
 
