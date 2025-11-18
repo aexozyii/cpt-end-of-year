@@ -10,11 +10,44 @@ def clear_screen():
 
 
 def center_text(text: str) -> str:
+    import re
+    # compute terminal size
     columns, lines = shutil.get_terminal_size()
     text_lines = text.split('\n')
-    centered_lines = [line.center(columns) for line in text_lines]
+    # ANSI escape sequence regex
+    ansi_re = re.compile(r"\x1b\[[0-9;]*m")
+    centered_lines = []
+    for line in text_lines:
+        # compute printable length by stripping ANSI sequences
+        printable = ansi_re.sub('', line)
+        printable_len = len(printable)
+        if printable_len >= columns:
+            # no centering if line is too long
+            centered_lines.append(line)
+        else:
+            left_pad = max((columns - printable_len) // 2, 0)
+            centered_lines.append(' ' * left_pad + line)
     vertical_padding = max((lines - len(text_lines)) // 2, 0)
     return '\n' * vertical_padding + '\n'.join(centered_lines)
+
+
+def center_block(lines: list) -> str:
+    """Center a block of lines using a single left padding so each row aligns vertically.
+
+    This computes the printable width of each line (stripping ANSI sequences), finds
+    the maximum printable width, computes one left padding to center the block, and
+    prefixes every line with that padding. Returns the block as a single string
+    with vertical centering applied.
+    """
+    import re
+    columns, term_lines = shutil.get_terminal_size()
+    ansi_re = re.compile(r"\x1b\[[0-9;]*m")
+    printable_lens = [len(ansi_re.sub('', l)) for l in lines]
+    max_printable = max(printable_lens) if printable_lens else 0
+    left_pad = max((columns - max_printable) // 2, 0)
+    padded = [(' ' * left_pad) + l for l in lines]
+    vertical_padding = max((term_lines - len(lines)) // 2, 0)
+    return '\n' * vertical_padding + '\n'.join(padded)
 
 
 def display_start_menu():
@@ -78,7 +111,7 @@ def display_meta_upgrades(meta_gain: int = 0):
 def display_shop():
     if state.game_state != 'shop':
         return
-    print('\033[H', end='', flush=True)
+    clear_screen()
     title = 'SHOP'
     lines = [
         title,
@@ -169,22 +202,69 @@ def flash_message(msg: str, delay: float = 0.8):
 def render_map():
     if state.game_state != 'explore':
         return
-    print('\033[H', end='', flush=True)
-    display_map = [row[:] for row in state.current_map]
+    # clear screen to avoid previous frames stacking
+    clear_screen()
+    # build a printable map (placeholder for player) to ensure fixed-width rows
+    printable_map = [list(row) for row in state.current_map]
     # draw teleport markers
     for (ty, tx), feature in state.TELEPORTS.items():
         if 0 <= ty < state.ROOM_HEIGHT and 0 <= tx < state.ROOM_WIDTH:
             if not (ty == state.player_y and tx == state.player_x):
-                display_map[ty][tx] = 'S'
-    # draw enemies (alive)
+                printable_map[ty][tx] = 'S'
+    # draw enemies (alive) as single chars (B for boss)
     for (ey, ex), enemy in list(state.enemies.items()):
         if 0 <= ey < state.ROOM_HEIGHT and 0 <= ex < state.ROOM_WIDTH:
-            # don't overwrite player char if standing on it
             if not (ey == state.player_y and ex == state.player_x):
-                display_map[ey][ex] = 'E'
-    display_map[state.player_y][state.player_x] = state.PLAYER_CHAR
-    map_str = '\n'.join([''.join(row) for row in display_map])
-    print(center_text(map_str + '\n\nUse WASD to move. Press Q to return to menu. Press ESC to exit.'))
+                printable_map[ey][ex] = 'B' if enemy.get('is_boss') else 'E'
+
+    # draw exit indicators for adjacent-room openings (only on floor cells)
+    try:
+        for (ey, ex), d in getattr(state, 'EXITS', {}).items():
+            if 0 <= ey < state.ROOM_HEIGHT and 0 <= ex < state.ROOM_WIDTH:
+                if printable_map[ey][ex] == state.FLOOR_CHAR:
+                    arrow = {'left': '<', 'right': '>', 'up': '^', 'down': 'v'}.get(d, '+')
+                    printable_map[ey][ex] = arrow
+    except Exception:
+        pass
+
+    # place a simple placeholder for the player so printable widths stay consistent
+    placeholder = '~'
+    printable_map[state.player_y][state.player_x] = placeholder
+
+    # build plain rows (fixed width)
+    rows_plain = [''.join(r) for r in printable_map]
+
+    # now create colored rows by substituting the placeholder with the colored player char
+    rows_colored = []
+    for r in rows_plain:
+        if placeholder in r:
+            rows_colored.append(r.replace(placeholder, state.PLAYER_CHAR, 1))
+        else:
+            rows_colored.append(r)
+
+    # build legend lines to display to the right of the map
+    legend = [
+        'Legend:',
+        f'{state.PLAYER_CHAR} You',
+        'E  Enemy',
+        'B  Boss',
+        'S  Shop',
+        '!  Event',
+        'H  Fountain (heals)',
+        '.  Floor',
+        '|  Wall',
+    ]
+
+    # combine colored rows with legend lines ensuring we use printable widths
+    combined_lines = []
+    max_lines = max(len(rows_colored), len(legend))
+    for i in range(max_lines):
+        left_colored = rows_colored[i] if i < len(rows_colored) else ' ' * state.ROOM_WIDTH
+        right = legend[i] if i < len(legend) else ''
+        combined_lines.append(left_colored + '   ' + right)
+
+    map_lines = combined_lines + [''] + [ 'Use WASD to move. Press Q to return to menu. Press ESC to exit.' ]
+    print(center_block(map_lines))
 
 
 def display_battle():
@@ -248,6 +328,21 @@ def switch_to_map():
         # silently block when not in main menu
         return
     # When opening the map via the menu, place the player at the map center
+    # increment visit counter to increase difficulty/spawns
+    state.map_visit_count = getattr(state, 'map_visit_count', 0) + 1
+    # regenerate rooms for this visit count and load the first room
+    try:
+        state.rooms = state.create_rooms(5, visits=state.map_visit_count)
+        # restore or clamp current room if present, otherwise start at 0
+        idx = getattr(state, 'current_room_index', 0)
+        try:
+            idx = max(0, min(idx, len(state.rooms) - 1))
+        except Exception:
+            idx = 0
+        state.current_room_index = idx
+        state.load_room(idx)
+    except Exception:
+        state.current_map = state.create_map()
     state.game_state = 'explore'
     # center inside the walls
     state.player_x = state.ROOM_WIDTH // 2

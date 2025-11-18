@@ -9,6 +9,7 @@ def save_game():
         state_dict = {
             'count': state.count,
             'per_click': state.per_click,
+            'current_room_index': getattr(state, 'current_room_index', 0),
             'player_x': state.player_x,
             'player_y': state.player_y,
             'upgrades': {
@@ -44,8 +45,18 @@ def load_game():
             s = json.load(f)
         state.count = int(s.get('count', state.count))
         state.per_click = int(s.get('per_click', state.per_click))
+        # restore current room index if present (and rooms are available)
+        saved_room_index = int(s.get('current_room_index', getattr(state, 'current_room_index', 0)))
         px = int(s.get('player_x', state.player_x))
         py = int(s.get('player_y', state.player_y))
+        # if rooms are present, clamp and load the saved room
+        try:
+            if hasattr(state, 'rooms') and state.rooms:
+                saved_room_index = max(0, min(saved_room_index, len(state.rooms) - 1))
+                state.current_room_index = saved_room_index
+                state.load_room(saved_room_index)
+        except Exception:
+            pass
         if 0 <= px < state.ROOM_WIDTH and 0 <= py < state.ROOM_HEIGHT:
             state.player_x = px
             state.player_y = py
@@ -102,6 +113,14 @@ def reset_game():
     for item in state.shop_items:
         item['purchased'] = False
 
+    # generate initial rooms for a fresh game
+    try:
+        state.rooms = state.create_rooms(5, visits=state.map_visit_count)
+        state.load_room(0)
+    except Exception:
+        # fallback to old single-map if multi-room fails
+        state.current_map = state.create_map()
+
 
 def reset_run():
     """Reset run-specific state after a death (keep meta progression)."""
@@ -120,8 +139,13 @@ def reset_run():
         upg['purchased'] = False
     for item in state.shop_items:
         item['purchased'] = False
-    # regenerate map and enemies
-    state.current_map = state.create_map()
+    # regenerate rooms and load the first room for the run
+    try:
+        state.rooms = state.create_rooms(5, visits=state.map_visit_count)
+        state.load_room(0)
+        state.current_room_index = 0
+    except Exception:
+        state.current_map = state.create_map()
     # reset run-specific tracking
     try:
         state.run_max_count = 0

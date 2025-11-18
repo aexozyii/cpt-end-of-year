@@ -1,5 +1,6 @@
 import time
 import os
+import random
 import state
 import render
 import persistence
@@ -12,7 +13,6 @@ def on_space():
     ignoring repeated events until a release is detected.
     Also keeps a small rate limit as a safety net.
     """
-    # if space is already considered pressed, ignore (handles OS key-repeat)
     if state.space_pressed:
         return
     state.space_pressed = True
@@ -22,7 +22,6 @@ def on_space():
         return
     state.last_space_time = now
     state.count += state.per_click
-    # update run high-water mark for meta reward calculation
     try:
         if state.count > getattr(state, 'run_max_count', 0):
             state.run_max_count = state.count
@@ -33,15 +32,10 @@ def on_space():
 
 
 def on_space_release():
-    """Handler to be called when the space key is released.
-
-    Resets the `space_pressed` flag so the next keydown will be handled.
-    """
     state.space_pressed = False
 
 
 def start_new_game():
-    """Start a new game."""
     if state.game_state != 'start_menu':
         return
     persistence.reset_game()
@@ -50,7 +44,6 @@ def start_new_game():
 
 
 def load_game_from_menu():
-    """Load game from the start menu."""
     if state.game_state != 'start_menu':
         return
     if not persistence.has_save_file():
@@ -61,14 +54,12 @@ def load_game_from_menu():
 
 
 def buy_upgrade_key(key: str):
-    """Buy an upgrade when in incremental view."""
     if state.game_state != 'incremental':
         return
     for upg in state.upgrades:
         if upg['key'] == key:
             if upg['purchased']:
                 return
-            # enforce meta gating if applicable
             meta_req = upg.get('meta_req')
             if meta_req and not state.meta_upgrades_state.get(meta_req, False):
                 render.flash_message('Upgrade locked. Unlock via Meta Upgrades')
@@ -87,7 +78,6 @@ def buy_upgrade_key(key: str):
 
 
 def buy_shop_item(key: str):
-    """Buy an item from the shop when in shop view."""
     if state.game_state != 'shop':
         return
     for item in state.shop_items:
@@ -98,7 +88,6 @@ def buy_shop_item(key: str):
                 return
             state.count -= item['cost']
             item['purchased'] = True
-            # add structured inventory entry with ascii art and level
             item_obj = {
                 'name': item['name'],
                 'type': item['type'],
@@ -106,13 +95,11 @@ def buy_shop_item(key: str):
                 'ascii': ''
             }
             if item['type'] == 'weapon':
-                # Use the small dart monkey ascii if present
                 ascii_path = os.path.join(os.path.dirname(__file__), 'ascii', 'dart_monkey_small.txt')
                 try:
                     with open(ascii_path, 'r', encoding='utf-8') as af:
                         item_obj['ascii'] = af.read().rstrip('\n')
                 except Exception:
-                    # fallback to a simple sword ascii
                     item_obj['ascii'] = (
                         '  /|\n'
                         ' /_|_\n'
@@ -136,16 +123,12 @@ def buy_shop_item(key: str):
                 state.has_bag = True
                 state.inventory_capacity += item['amount'] * 10
             state.inventory.append(item_obj)
-            # buying doesn't increase run_max, but future income might
             persistence.save_game()
             break
     render.display_shop()
 
 
 def equip_inventory_index(key: str):
-    """Equip an inventory item by numeric key when inventory view is open.
-    key is a string like '1','2',...
-    """
     if state.game_state != 'inventory':
         return
     try:
@@ -159,7 +142,6 @@ def equip_inventory_index(key: str):
         return
     itype = item.get('type')
     if itype == 'weapon':
-        # equip weapon: compute attack
         lvl = int(item.get('level', 1))
         atk = int(state.compute_weapon_attack(lvl))
         state.equipped_weapon = dict(item, equipped=True)
@@ -175,34 +157,6 @@ def equip_inventory_index(key: str):
         render.display_inventory()
 
 
-def move(dx, dy):
-    now = time.time()
-    # enforce movement cooldown
-    if now - state.last_move_time < state.MOVE_INTERVAL:
-        return
-    with state.movement_lock:
-        new_x = state.player_x + dx
-        new_y = state.player_y + dy
-        valid_x = 0 <= new_x < state.ROOM_WIDTH
-        valid_y = 0 <= new_y < state.ROOM_HEIGHT
-        if not (valid_x and valid_y):
-            return  # Block invalid movement
-        if state.current_map[new_y][new_x] == state.WALL_CHAR:
-            return  # Block movement into walls
-        state.player_x = new_x
-        state.player_y = new_y
-        state.last_move_time = now
-        feature = state.TELEPORTS.get((state.player_y, state.player_x))
-        if feature:
-            enter_feature(feature)
-            return
-        # check for enemy encounter
-        pos = (state.player_y, state.player_x)
-        if pos in state.enemies:
-            enter_battle(pos)
-            return
-
-
 def enter_feature(name: str):
     state.prev_state = state.game_state
     state.prev_player_pos = (state.player_y, state.player_x)
@@ -211,23 +165,169 @@ def enter_feature(name: str):
         render.display_shop()
 
 
+def move(dx, dy):
+    now = time.time()
+    if now - state.last_move_time < state.MOVE_INTERVAL:
+        return
+
+    ny = state.player_y + dy
+    nx = state.player_x + dx
+
+    # border crossing -> move between rooms instead of clamping
+    if nx <= 0:
+        # if multi-room world is available, move to previous room
+        if getattr(state, 'rooms', None) and len(state.rooms) > 0:
+            dest = (state.current_room_index - 1) % len(state.rooms)
+            state.load_room(dest)
+            state.player_y = max(1, min(state.ROOM_HEIGHT - 2, ny))
+            state.player_x = state.ROOM_WIDTH - 2
+            state.last_move_time = now
+            render.render_map()
+            return
+        # fallback: clamp to inner edge
+        nx = 1
+    if nx >= state.ROOM_WIDTH - 1:
+        if getattr(state, 'rooms', None) and len(state.rooms) > 0:
+            dest = (state.current_room_index + 1) % len(state.rooms)
+            state.load_room(dest)
+            state.player_y = max(1, min(state.ROOM_HEIGHT - 2, ny))
+            state.player_x = 1
+            state.last_move_time = now
+            render.render_map()
+            return
+        nx = state.ROOM_WIDTH - 2
+    if ny <= 0:
+        if getattr(state, 'rooms', None) and len(state.rooms) > 0:
+            dest = (state.current_room_index - 1) % len(state.rooms)
+            state.load_room(dest)
+            state.player_y = state.ROOM_HEIGHT - 2
+            state.player_x = max(1, min(state.ROOM_WIDTH - 2, nx))
+            state.last_move_time = now
+            render.render_map()
+            return
+        ny = state.ROOM_HEIGHT - 2
+    if ny >= state.ROOM_HEIGHT - 1:
+        if getattr(state, 'rooms', None) and len(state.rooms) > 0:
+            dest = (state.current_room_index + 1) % len(state.rooms)
+            state.load_room(dest)
+            state.player_y = 1
+            state.player_x = max(1, min(state.ROOM_WIDTH - 2, nx))
+            state.last_move_time = now
+            render.render_map()
+            return
+        ny = 1
+
+    ny = max(0, min(state.ROOM_HEIGHT - 1, ny))
+    nx = max(0, min(state.ROOM_WIDTH - 1, nx))
+
+    # stepping into wall? abort
+    if state.current_map[ny][nx] == state.WALL_CHAR:
+        return
+
+    state.player_y, state.player_x = ny, nx
+    state.last_move_time = now
+
+    # teleports
+    if (state.player_y, state.player_x) in state.TELEPORTS:
+        tp = state.TELEPORTS[(state.player_y, state.player_x)]
+        if tp == 'shop':
+            enter_feature('shop')
+            return
+
+    # fountain
+    if state.current_map[state.player_y][state.player_x] == 'H':
+        trigger_healing((state.player_y, state.player_x))
+        return
+
+    # exclaim events
+    if state.current_map[state.player_y][state.player_x] == '!':
+        trigger_exclaim((state.player_y, state.player_x))
+        return
+
+    # enemy encounter
+    pos = (state.player_y, state.player_x)
+    if pos in state.enemies:
+        enter_battle(pos)
+
+
+def trigger_exclaim(pos):
+    try:
+        y, x = pos
+    except Exception:
+        return
+    try:
+        if state.current_map[y][x] != '!':
+            return
+    except Exception:
+        return
+    state.current_map[y][x] = state.FLOOR_CHAR
+    if random.random() < 0.5:
+        reward = random.randint(50, 200) + max(0, state.map_visit_count) * 20
+        state.count += reward
+        try:
+            if state.count > getattr(state, 'run_max_count', 0):
+                state.run_max_count = state.count
+        except Exception:
+            pass
+        persistence.save_game()
+        render.flash_message(f'Treasure found! +{reward} coins')
+        if state.game_state == 'explore':
+            render.render_map()
+        return
+    visits = max(0, state.map_visit_count)
+    if random.random() < 0.6:
+        enemy = {
+            'name': 'Ambusher',
+            'hp': 100 + visits * 12,
+            'atk': 6 + visits,
+            'reward': int(150 * (1 + 0.2 * visits)),
+            'ascii': "(>_<)"
+        }
+    else:
+        enemy = {
+            'name': 'Angry Monkey',
+            'hp': 140 + visits * 18,
+            'atk': 10 + visits * 2,
+            'reward': int(300 * (1 + 0.2 * visits)),
+            'ascii': "(~)"
+        }
+    state.enemies[(y, x)] = enemy
+    enter_battle((y, x))
+
+
+def trigger_healing(pos):
+    try:
+        y, x = pos
+    except Exception:
+        return
+    try:
+        if state.current_map[y][x] != 'H':
+            return
+    except Exception:
+        return
+    heal = min(state.player_max_hp - state.player_hp, 10)
+    if heal <= 0:
+        if state.game_state == 'explore':
+            render.render_map()
+        return
+    state.player_hp = min(state.player_max_hp, state.player_hp + heal)
+    render.flash_message(f'Healed +{heal} HP')
+    if state.game_state == 'explore':
+        render.render_map()
+
+
 def return_from_shop():
     if state.game_state != 'shop':
-        # also allow finishing meta-upgrade screen with the same key
         if state.game_state == 'meta':
-            # finish meta purchases: load saved persistent state and go to in-game menu
-            # ensure HP is restored for next run
             state.player_hp = state.player_max_hp
-            # reload the saved persistent file so meta progression persists
-            if persistence.has_save_file():
-                persistence.load_game()
-            # go to the main in-game menu
+            persistence.reset_run()
+            persistence.save_game()
             state.game_state = 'menu'
             render.display_menu()
         return
     prev_pos = state.prev_player_pos
     if isinstance(prev_pos, tuple) and len(prev_pos) == 2:
-        py, px = prev_pos  # type: ignore
+        py, px = prev_pos
         state.player_x = px
         state.player_y = py
     state.game_state = 'explore'
@@ -236,7 +336,6 @@ def return_from_shop():
 
 
 def buy_meta_upgrade(key: str):
-    """Buy a persistent meta-upgrade when on the meta screen."""
     if state.game_state != 'meta':
         return
     for m in state.meta_upgrades:
@@ -246,10 +345,8 @@ def buy_meta_upgrade(key: str):
             cost = int(m.get('cost', 0))
             if state.meta_currency < cost:
                 return
-            # purchase it
             state.meta_currency -= cost
             m['purchased'] = True
-            # apply persistent effects
             mid = m.get('id')
             if mid == 'unlock_tier1':
                 state.meta_upgrades_state['unlock_tier1'] = True
@@ -259,36 +356,29 @@ def buy_meta_upgrade(key: str):
                 state.meta_start_per_click = int(state.meta_start_per_click) + 1
             if mid == 'start_attack':
                 state.meta_start_attack = int(state.meta_start_attack) + 5
-            # persist meta purchases
             persistence.save_game()
             break
-    # re-render meta UI
     render.display_meta_upgrades(0)
 
 
 def toggle_inventory():
     if not state.has_bag:
         return
-    # Only allow opening inventory from the main menu
     if state.game_state == 'inventory':
-        # Return to menu instead of map
         render.switch_to_menu()
         return
     if state.game_state != 'menu':
-        # silently block opening inventory from non-menu states
         return
     state.game_state = 'inventory'
     render.display_inventory()
 
 
 def enter_battle(pos):
-    """Begin a battle with the enemy at pos."""
     state.prev_state = state.game_state
     state.prev_player_pos = (state.player_y, state.player_x)
     enemy = state.enemies.get(pos)
     if not enemy:
         return
-    # copy enemy data for current battle
     state.current_battle_enemy = dict(enemy)
     state.current_battle_pos = pos
     state.game_state = 'battle'
@@ -296,24 +386,19 @@ def enter_battle(pos):
 
 
 def battle_attack():
-    """Player attacks the current enemy; simple turn-based exchange."""
     if state.game_state != 'battle' or not state.current_battle_enemy:
         return
     enemy = state.current_battle_enemy
-    # player's damage (ensure at least 1)
     damage = max(1, state.attack)
     enemy['hp'] -= damage
     if enemy['hp'] <= 0:
-        # enemy defeated
         reward = enemy.get('reward', 0)
         state.count += reward
-        # update run high-water mark after reward
         try:
             if state.count > getattr(state, 'run_max_count', 0):
                 state.run_max_count = state.count
         except Exception:
             pass
-        # remove enemy from map
         try:
             del state.enemies[state.current_battle_pos]
         except Exception:
@@ -326,15 +411,10 @@ def battle_attack():
         persistence.save_game()
         return
 
-    # enemy retaliates
     state.player_hp -= enemy.get('atk', 0)
     if state.player_hp <= 0:
-        # player defeated: show death splash, perform roguelite reset
         render.display_death_splash()
-        # give player a moment to see the splash
         time.sleep(3)
-        # compute meta reward based on run progress (simple formula)
-        # reward = floor(run_max_count / 1000), minimum 1
         try:
             run_best = int(getattr(state, 'run_max_count', 0))
         except Exception:
@@ -342,21 +422,15 @@ def battle_attack():
         meta_reward = max(1, run_best // 1000)
         state.meta_currency = getattr(state, 'meta_currency', 0) + meta_reward
         persistence.save_game()
-        # switch to meta-upgrade screen so player can spend meta currency
         state.game_state = 'meta'
         render.display_meta_upgrades(meta_reward)
-        # When player finishes spending (press B), return_from_shop will handle finishing and call reset_run
         return
-
-    # still alive: update battle screen
     render.display_battle()
 
 
 def flee_battle():
-    """Flee the battle and return to where player was before encounter (menu or map)."""
     if state.game_state != 'battle':
         return
-    # restore previous position if available
     try:
         py, px = state.prev_player_pos
         state.player_x = px
@@ -371,13 +445,6 @@ def flee_battle():
 
 
 def handle_number_key(key: str):
-    """Dispatch numeric key based on current view.
-
-    - start_menu: 1 = new, 2 = load
-    - inventory: equip slot
-    - shop: buy shop item
-    - incremental: buy upgrade
-    """
     if state.game_state == 'start_menu':
         if key == '1':
             start_new_game()
@@ -396,3 +463,4 @@ def handle_number_key(key: str):
     if state.game_state == 'meta':
         buy_meta_upgrade(key)
         return
+
