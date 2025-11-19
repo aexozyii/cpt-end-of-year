@@ -173,11 +173,11 @@ def move(dx, dy):
     ny = state.player_y + dy
     nx = state.player_x + dx
 
-    # border crossing -> move between rooms instead of clamping
+    # border crossing -> move between rooms instead of clamping (left-right only, no top-bottom)
     if nx <= 0:
-        # if multi-room world is available, move to previous room
-        if getattr(state, 'rooms', None) and len(state.rooms) > 0:
-            dest = (state.current_room_index - 1) % len(state.rooms)
+        # if multi-room world is available, move to previous room (non-wrapping)
+        if getattr(state, 'rooms', None) and len(state.rooms) > 0 and state.current_room_index > 0:
+            dest = state.current_room_index - 1
             state.load_room(dest)
             state.player_y = max(1, min(state.ROOM_HEIGHT - 2, ny))
             state.player_x = state.ROOM_WIDTH - 2
@@ -187,8 +187,8 @@ def move(dx, dy):
         # fallback: clamp to inner edge
         nx = 1
     if nx >= state.ROOM_WIDTH - 1:
-        if getattr(state, 'rooms', None) and len(state.rooms) > 0:
-            dest = (state.current_room_index + 1) % len(state.rooms)
+        if getattr(state, 'rooms', None) and len(state.rooms) > 0 and state.current_room_index < len(state.rooms) - 1:
+            dest = state.current_room_index + 1
             state.load_room(dest)
             state.player_y = max(1, min(state.ROOM_HEIGHT - 2, ny))
             state.player_x = 1
@@ -196,33 +196,23 @@ def move(dx, dy):
             render.render_map()
             return
         nx = state.ROOM_WIDTH - 2
+    # clamp top-bottom borders (no room transitions for vertical movement)
     if ny <= 0:
-        if getattr(state, 'rooms', None) and len(state.rooms) > 0:
-            dest = (state.current_room_index - 1) % len(state.rooms)
-            state.load_room(dest)
-            state.player_y = state.ROOM_HEIGHT - 2
-            state.player_x = max(1, min(state.ROOM_WIDTH - 2, nx))
-            state.last_move_time = now
-            render.render_map()
-            return
-        ny = state.ROOM_HEIGHT - 2
-    if ny >= state.ROOM_HEIGHT - 1:
-        if getattr(state, 'rooms', None) and len(state.rooms) > 0:
-            dest = (state.current_room_index + 1) % len(state.rooms)
-            state.load_room(dest)
-            state.player_y = 1
-            state.player_x = max(1, min(state.ROOM_WIDTH - 2, nx))
-            state.last_move_time = now
-            render.render_map()
-            return
         ny = 1
+    if ny >= state.ROOM_HEIGHT - 1:
+        ny = state.ROOM_HEIGHT - 2
 
     ny = max(0, min(state.ROOM_HEIGHT - 1, ny))
     nx = max(0, min(state.ROOM_WIDTH - 1, nx))
 
-    # stepping into wall? abort
-    if state.current_map[ny][nx] == state.WALL_CHAR:
-        return
+    # stepping into wall or rock? abort (walls and rocks are impassable)
+    try:
+        if state.current_map[ny][nx] in (state.WALL_CHAR, getattr(state, 'H_WALL_CHAR', state.WALL_CHAR), '^'):
+            return
+    except Exception:
+        # fallback to previous behavior
+        if state.current_map[ny][nx] == state.WALL_CHAR:
+            return
 
     state.player_y, state.player_x = ny, nx
     state.last_move_time = now

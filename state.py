@@ -13,7 +13,10 @@ colorama.init(autoreset=True)
 ROOM_WIDTH = 50
 ROOM_HEIGHT = 50
 PLAYER_CHAR = f'{Fore.LIGHTRED_EX}~{Style.RESET_ALL}'
-WALL_CHAR = '|'
+# vertical wall (left/right) and horizontal wall (top/bottom)
+# use box-drawing characters for a nicer look (most terminals support these)
+WALL_CHAR = '│'  # vertical wall
+H_WALL_CHAR = '─'  # horizontal wall
 FLOOR_CHAR = '.'
 player_y, player_x = 4, 10
 # how many times the player has opened/visited the map
@@ -29,66 +32,49 @@ def create_room(visits: int = 0):
     Returns a dict with keys: 'map', 'enemies', 'teleport', 'fountain'.
     """
     game_map = [[FLOOR_CHAR for _ in range(ROOM_WIDTH)] for _ in range(ROOM_HEIGHT)]
-    # outer walls
+    # outer walls: top/bottom use horizontal wall, left/right use vertical wall
     for x in range(ROOM_WIDTH):
-        game_map[0][x] = WALL_CHAR
-        game_map[ROOM_HEIGHT - 1][x] = WALL_CHAR
+        game_map[0][x] = H_WALL_CHAR
+        game_map[ROOM_HEIGHT - 1][x] = H_WALL_CHAR
     for y in range(ROOM_HEIGHT):
         game_map[y][0] = WALL_CHAR
         game_map[y][ROOM_WIDTH - 1] = WALL_CHAR
 
-    # carve small openings at each edge so players can move between rooms
-    # openings are centered and 3 cells wide (vertical on left/right, horizontal on top/bottom)
-    opening_size = 3
-    cy = ROOM_HEIGHT // 2
-    cx = ROOM_WIDTH // 2
+    # by default no carved exits; `create_rooms` will link rooms and carve openings as needed
     exits = {}
-    half = opening_size // 2
-    # left edge openings
-    for dy in range(-half, half + 1):
-        oy = cy + dy
-        ox = 0
-        if 0 <= oy < ROOM_HEIGHT:
-            game_map[oy][ox] = FLOOR_CHAR
-            exits[(oy, ox)] = 'left'
-    # right edge openings
-    for dy in range(-half, half + 1):
-        oy = cy + dy
-        ox = ROOM_WIDTH - 1
-        if 0 <= oy < ROOM_HEIGHT:
-            game_map[oy][ox] = FLOOR_CHAR
-            exits[(oy, ox)] = 'right'
-    # top edge openings
-    for dx in range(-half, half + 1):
-        oy = 0
-        ox = cx + dx
-        if 0 <= ox < ROOM_WIDTH:
-            game_map[oy][ox] = FLOOR_CHAR
-            exits[(oy, ox)] = 'up'
-    # bottom edge openings
-    for dx in range(-half, half + 1):
-        oy = ROOM_HEIGHT - 1
-        ox = cx + dx
-        if 0 <= ox < ROOM_WIDTH:
-            game_map[oy][ox] = FLOOR_CHAR
-            exits[(oy, ox)] = 'down'
 
     # place some interior features: number of exclaims/enemies scale with visits
     num_exclaims = random.randint(1, max(1, min(6, 1 + visits)))
-    num_enemies = random.randint(1 + visits, min(10, 2 + visits * 2))
+    num_enemies = random.randint(2 + visits, min(12, 3 + visits * 2))  # increased spawn rate
+    num_rocks = random.randint(8, max(12, 15 + visits))  # increased rock density
 
     # pick free interior cells (not walls)
     avail = [(y, x) for y in range(1, ROOM_HEIGHT - 1) for x in range(1, ROOM_WIDTH - 1)]
     random.shuffle(avail)
     exclaim_positions = avail[:num_exclaims]
     enemy_positions = avail[num_exclaims:num_exclaims + num_enemies]
+    rock_positions = avail[num_exclaims + num_enemies:num_exclaims + num_enemies + num_rocks]
 
     for (ey, ex) in exclaim_positions:
         game_map[ey][ex] = '!'
 
-    # create enemies dict for this room
+    # place rocks (obstacles) on the map with cluster expansion for larger rocks
+    for (ry, rx) in rock_positions:
+        game_map[ry][rx] = '^'
+        # randomly expand rock clusters to make rocks bigger
+        if random.random() < 0.4:
+            for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                ny, nx = ry + dy, rx + dx
+                if 1 <= ny < ROOM_HEIGHT - 1 and 1 <= nx < ROOM_WIDTH - 1:
+                    if game_map[ny][nx] == FLOOR_CHAR:
+                        game_map[ny][nx] = '^'
+
+    # create enemies dict for this room (skip cells with decorative elements)
     enemies_local = {}
     for (ey, ex) in enemy_positions:
+        # skip if enemy position overlaps with interactive elements (vegetation, water, treasure, torches)
+        if game_map[ey][ex] not in (FLOOR_CHAR, '!'):
+            continue
         if random.random() < 0.6:
             enemies_local[(ey, ex)] = {
                 'name': 'Human',
@@ -108,8 +94,8 @@ def create_room(visits: int = 0):
 
     # optional fountain
     fountain_pos = None
-    if len(avail) > num_exclaims + num_enemies:
-        fpos = avail[num_exclaims + num_enemies]
+    if len(avail) > num_exclaims + num_enemies + num_rocks:
+        fpos = avail[num_exclaims + num_enemies + num_rocks]
         fy, fx = fpos
         game_map[fy][fx] = 'H'
         fountain_pos = (fy, fx)
@@ -122,6 +108,8 @@ def create_room(visits: int = 0):
 
 def create_rooms(n: int = 5, visits: int = 0):
     """Generate `n` independent rooms for the current run. One room will be assigned the shop, and one a boss."""
+    # cap the number of rooms to a sane maximum (5)
+    n = max(1, min(int(n), 5))
     rs = [create_room(visits) for _ in range(n)]
     # pick a shop room and assign a teleport position roughly near center
     shop_idx = random.randrange(len(rs))
@@ -149,12 +137,24 @@ def create_rooms(n: int = 5, visits: int = 0):
         rm['map'][sy][sx] = FLOOR_CHAR
     except Exception:
         pass
-    # pick a boss room (prefer an index different from shop)
-    boss_idx = shop_idx
-    if len(rs) > 1:
-        while boss_idx == shop_idx:
-            boss_idx = random.randrange(len(rs))
-    # put boss near an edge
+    # place the boss in the last room (index len(rs)-1)
+    boss_idx = len(rs) - 1
+    # if the shop was randomly chosen to be the last room, move shop elsewhere
+    if shop_idx == boss_idx and len(rs) > 1:
+        # pick a different shop index
+        new_shop_idx = random.choice([i for i in range(len(rs)) if i != boss_idx])
+        # move teleport data
+        # clear old shop
+        try:
+            rs[shop_idx]['teleport'] = {}
+        except Exception:
+            pass
+        shop_idx = new_shop_idx
+        rm = rs[shop_idx]
+        sx = ROOM_WIDTH // 2
+        sy = ROOM_HEIGHT // 2
+        rm['teleport'] = {(sy, sx): 'shop'}
+    # put boss near an edge in the final room
     brow = rs[boss_idx]
     bx = random.randint(2, ROOM_WIDTH - 3)
     by = random.randint(2, ROOM_HEIGHT - 3)
@@ -166,6 +166,52 @@ def create_rooms(n: int = 5, visits: int = 0):
         'ascii': '(#B#)',
         'is_boss': True
     }
+    # Link rooms linearly (left-right). Carve 3-cell openings between neighbors and set 'exits'.
+    opening_size = 3
+    half = opening_size // 2
+    cy = ROOM_HEIGHT // 2
+    for i in range(len(rs)):
+        rs[i]['exits'] = {}
+    for i in range(len(rs)):
+        rm = rs[i]
+        # connect to previous room on the left
+        if i > 0:
+            left_room = rs[i - 1]
+            for dy in range(-half, half + 1):
+                oy = cy + dy
+                ox = 0
+                if 0 <= oy < ROOM_HEIGHT:
+                    # carve opening
+                    rm['map'][oy][ox] = FLOOR_CHAR
+                    rm['exits'][(oy, ox)] = 'left'
+                    # also carve reciprocal opening on right edge of left_room
+                    left_room['map'][oy][ROOM_WIDTH - 1] = FLOOR_CHAR
+                    left_room['exits'][(oy, ROOM_WIDTH - 1)] = 'right'
+                    # remove any enemy/event on those cells
+                    rm['enemies'].pop((oy, ox), None)
+                    left_room['enemies'].pop((oy, ROOM_WIDTH - 1), None)
+                    if rm['map'][oy][ox] in ('!', 'H'):
+                        rm['map'][oy][ox] = FLOOR_CHAR
+                    if left_room['map'][oy][ROOM_WIDTH - 1] in ('!', 'H'):
+                        left_room['map'][oy][ROOM_WIDTH - 1] = FLOOR_CHAR
+        # connect to next room on the right
+        if i < len(rs) - 1:
+            right_room = rs[i + 1]
+            for dy in range(-half, half + 1):
+                oy = cy + dy
+                ox = ROOM_WIDTH - 1
+                if 0 <= oy < ROOM_HEIGHT:
+                    rm['map'][oy][ox] = FLOOR_CHAR
+                    rm['exits'][(oy, ox)] = 'right'
+                    right_room['map'][oy][0] = FLOOR_CHAR
+                    right_room['exits'][(oy, 0)] = 'left'
+                    rm['enemies'].pop((oy, ox), None)
+                    right_room['enemies'].pop((oy, 0), None)
+                    if rm['map'][oy][ox] in ('!', 'H'):
+                        rm['map'][oy][ox] = FLOOR_CHAR
+                    if right_room['map'][oy][0] in ('!', 'H'):
+                        right_room['map'][oy][0] = FLOOR_CHAR
+
     return rs
 
 
@@ -239,8 +285,8 @@ def create_map():
     # base map with floor and outer walls
     game_map = [[FLOOR_CHAR for _ in range(ROOM_WIDTH)] for _ in range(ROOM_HEIGHT)]
     for x in range(ROOM_WIDTH):
-        game_map[0][x] = WALL_CHAR
-        game_map[ROOM_HEIGHT - 1][x] = WALL_CHAR
+        game_map[0][x] = H_WALL_CHAR
+        game_map[ROOM_HEIGHT - 1][x] = H_WALL_CHAR
     for y in range(ROOM_HEIGHT):
         game_map[y][0] = WALL_CHAR
         game_map[y][ROOM_WIDTH - 1] = WALL_CHAR
@@ -272,7 +318,9 @@ def create_map():
         for ry in range(y1, y2 + 1):
             for rx in range(x1, x2 + 1):
                 # leave interior as floor, draw walls at room edges
-                if ry == y1 or ry == y2 or rx == x1 or rx == x2:
+                if ry == y1 or ry == y2:
+                    game_map[ry][rx] = H_WALL_CHAR
+                elif rx == x1 or rx == x2:
                     game_map[ry][rx] = WALL_CHAR
                 else:
                     game_map[ry][rx] = FLOOR_CHAR

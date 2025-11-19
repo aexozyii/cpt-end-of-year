@@ -3,6 +3,7 @@ import shutil
 import state
 import persistence
 import time
+import re
 
 
 def clear_screen():
@@ -39,7 +40,6 @@ def center_block(lines: list) -> str:
     prefixes every line with that padding. Returns the block as a single string
     with vertical centering applied.
     """
-    import re
     columns, term_lines = shutil.get_terminal_size()
     ansi_re = re.compile(r"\x1b\[[0-9;]*m")
     printable_lens = [len(ansi_re.sub('', l)) for l in lines]
@@ -48,6 +48,11 @@ def center_block(lines: list) -> str:
     padded = [(' ' * left_pad) + l for l in lines]
     vertical_padding = max((term_lines - len(lines)) // 2, 0)
     return '\n' * vertical_padding + '\n'.join(padded)
+
+
+# module-level ANSI regex and previous render height track to avoid flashing
+_ansi_re = re.compile(r"\x1b\[[0-9;]*m")
+_last_render_height = 0
 
 
 def display_start_menu():
@@ -202,8 +207,8 @@ def flash_message(msg: str, delay: float = 0.8):
 def render_map():
     if state.game_state != 'explore':
         return
-    # clear screen to avoid previous frames stacking
-    clear_screen()
+    # Move cursor home; we'll overwrite previous frame in-place to avoid flashing
+    print('\033[H', end='', flush=True)
     # build a printable map (placeholder for player) to ensure fixed-width rows
     printable_map = [list(row) for row in state.current_map]
     # draw teleport markers
@@ -234,16 +239,21 @@ def render_map():
     # build plain rows (fixed width)
     rows_plain = [''.join(r) for r in printable_map]
 
-    # now create colored rows by substituting the placeholder with the colored player char
+    # Double each character horizontally so cells appear squarer in most terminals
+    rows_doubled = [''.join(ch * 2 for ch in row) for row in rows_plain]
+
+    # now create colored rows by substituting the doubled placeholder with two colored player chars
     rows_colored = []
-    for r in rows_plain:
-        if placeholder in r:
-            rows_colored.append(r.replace(placeholder, state.PLAYER_CHAR, 1))
+    ph = placeholder * 2
+    pcol = state.PLAYER_CHAR * 2
+    for r in rows_doubled:
+        if ph in r:
+            rows_colored.append(r.replace(ph, pcol, 1))
         else:
             rows_colored.append(r)
 
-    # build legend lines to display to the right of the map
-    legend = [
+    # build legend lines to display to the right of the map (functional items only)
+    raw_legend = [
         'Legend:',
         f'{state.PLAYER_CHAR} You',
         'E  Enemy',
@@ -252,19 +262,61 @@ def render_map():
         '!  Event',
         'H  Fountain (heals)',
         '.  Floor',
-        '|  Wall',
+        f'{state.WALL_CHAR}  Vertical Wall',
+        f'{state.H_WALL_CHAR}  Horizontal Wall',
+        '^  Rock (obstacle)',
     ]
+    # preserve order but remove duplicates (some entries could be identical in rare cases)
+    legend = []
+    seen = set()
+    for line in raw_legend:
+        key = line
+        if key not in seen:
+            legend.append(line)
+            seen.add(key)
 
     # combine colored rows with legend lines ensuring we use printable widths
     combined_lines = []
     max_lines = max(len(rows_colored), len(legend))
     for i in range(max_lines):
-        left_colored = rows_colored[i] if i < len(rows_colored) else ' ' * state.ROOM_WIDTH
+        left_colored = rows_colored[i] if i < len(rows_colored) else ' ' * (state.ROOM_WIDTH * 2)
         right = legend[i] if i < len(legend) else ''
         combined_lines.append(left_colored + '   ' + right)
 
-    map_lines = combined_lines + [''] + [ 'Use WASD to move. Press Q to return to menu. Press ESC to exit.' ]
-    print(center_block(map_lines))
+    # small minimap showing all generated rooms (one row), highlight current room in red
+    try:
+        rooms = getattr(state, 'rooms', [])
+        mini_items = []
+        for i in range(len(rooms)):
+            if i == getattr(state, 'current_room_index', 0):
+                mini_items.append(state.Fore.LIGHTRED_EX + '■' + state.Style.RESET_ALL)
+            else:
+                mini_items.append('□')
+        minimap_line = 'Rooms: ' + ' '.join(mini_items)
+    except Exception:
+        minimap_line = ''
+
+    map_lines = combined_lines + [''] + [ minimap_line, 'Use WASD to move (hold two keys for diagonals). Press Q to return to menu. Press ESC to exit.' ]
+
+    # Render the centered block but avoid flicker by overwriting previous frame.
+    out = center_block(map_lines)
+    out_lines = out.split('\n')
+    # calculate printable widths per line (strip ANSI)
+    printable_lens = [_ansi_re.sub('', l) for l in out_lines]
+    max_width = max((len(s) for s in printable_lens), default=0)
+
+    global _last_render_height
+    # print each line and pad with spaces to fully overwrite previous content
+    for line in out_lines:
+        plain = _ansi_re.sub('', line)
+        pad = max_width - len(plain)
+        print(line + (' ' * pad))
+    # if previous frame had more lines, clear the remainder
+    if _last_render_height > len(out_lines):
+        blank = ' ' * max_width
+        for _ in range(_last_render_height - len(out_lines)):
+            print(blank)
+    _last_render_height = len(out_lines)
 
 
 def display_battle():
