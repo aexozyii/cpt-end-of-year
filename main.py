@@ -154,5 +154,13 @@ def main():
     persistence.save_game()
 
 
+keyboard.add_hotkey('1', actions.start_new_game)
+keyboard.add_hotkey('2', actions.load_game_from_menu)
+
+
+for k in list('123456789'):
+    keyboard.add_hotkey(k, lambda key=k: actions.handle_number_key(key))
+
+
 if __name__ == '__main__':
     main()

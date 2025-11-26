@@ -45,12 +45,25 @@ shop_items = [
     {'key': '3', 'name': 'Bag',    'cost': 50,  'type': 'bag',    'amount': 1, 'purchased': False},
 ]
 
+
+BATTLE_ACTIONS = {
+    '1': {'name': 'Execute Code', 'type': 'Attack', 'color': 'RED'},
+    '2': {'name': 'Defend Code',  'type': 'Defend', 'color': 'BLUE'},
+    '3': {'name': 'Recover',      'type': 'Heal',   'color': 'WHITE'},
+    '4': {'name': 'Hack',         'type': 'Debuff', 'color': 'Black'},
+    '5': {'name': 'Debug',        'type': 'Buff',    'color': 'GREEN'},
+}
+
+
 # Player combat/stats and inventory
 attack = 0
 defense = 0
 has_bag = False
 inventory = []
 inventory_capacity = 0
+player_defense_modifier = 0
+enemy_attack_modifier = 0
+
 # equipped items
 equipped_weapon = None  # dict or None
 equipped_armour = None  # dict or None

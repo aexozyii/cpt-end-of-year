@@ -6,36 +6,42 @@ import time
 
 
 def clear_screen():
-    os.system('cls' if os.name == 'nt' else 'clear')
+    print('\033[H\033[2J', end='', flush=True)
 
 
 def center_text(text: str) -> str:
     columns, lines = shutil.get_terminal_size()
     text_lines = text.split('\n')
+    
+    # Calculate vertical padding required to fill the screen
+    vertical_padding_top = max((lines - len(text_lines)) // 2, 0)
+    vertical_padding_bottom = max(lines - len(text_lines) - vertical_padding_top, 0)
+
     centered_lines = [line.center(columns) for line in text_lines]
-    vertical_padding = max((lines - len(text_lines)) // 2, 0)
-    return '\n' * vertical_padding + '\n'.join(centered_lines)
+    
+    # Pad the text vertically to ensure it uses all available lines in the terminal
+    full_output = ('\n' * vertical_padding_top + 
+                   '\n'.join(centered_lines) + 
+                   '\n' * vertical_padding_bottom)
+    
+    # Return the full string padded horizontally and vertically
+    return full_output
 
 
 def display_start_menu():
-    """Display the initial start menu (New Game / Load Game)."""
-    if state.game_state != 'start_menu':
-        return
-    clear_screen()
+    if state.game_state != 'start_menu': return
+    # clear_screen() # No need for clear_screen here anymore
     lines = ['GAME MENU', '==========', '']
-    lines.append('[1] New Game')
-    if persistence.has_save_file():
-        lines.append('[2] Load Game')
-    lines.append('[ESC] Exit')
+    # ... (lines append logic) ...
     menu_text = '\n'.join(lines) + '\n'
-    print(center_text(menu_text))
+    print(center_text(menu_text), end='', flush=True)
 
 
 def display_incremental():
     if state.game_state != 'incremental':
         return
-    print('\033[H', end='', flush=True)
-    title = 'game placeholder'
+    # Generate the full screen content as one large string
+    title = 'IDK what resource this is'
     counter = f'Total Currency: {state.count}'
     prompt = f'(Press SPACE to earn +{state.per_click} | Press ESC to quit)'
     lines = [title, '', counter, '', prompt, '']
@@ -44,7 +50,6 @@ def display_incremental():
         if upg.get('purchased'):
             status = '(PURCHASED)'
         else:
-            # show locked status when upgrade requires a meta unlock
             meta_req = upg.get('meta_req')
             if meta_req and not state.meta_upgrades_state.get(meta_req, False):
                 status = '(LOCKED)'
@@ -52,7 +57,8 @@ def display_incremental():
                 status = f'Cost: {upg["cost"]}'
         effect = f'+{upg["amount"]}/click' if upg['type'] == 'add' else f'x{upg["amount"]}/click'
         lines.append(f'[{upg["key"]}] {upg["name"]} - {effect} {status}')
-    print(center_text('\n'.join(lines)))
+    full_output = center_text('\n'.join(lines))
+    print(full_output, end='', flush=True)
 
 
 def display_meta_upgrades(meta_gain: int = 0):
@@ -192,13 +198,27 @@ def display_battle():
         return
     clear_screen()
     enemy = state.current_battle_enemy
+    
+    # Use colorama if available in state module
+    fore = state.Fore if hasattr(state, 'Fore') else ''
+    style = state.Style if hasattr(state, 'Style') else ''
+    
     title = f"BATTLE: {enemy.get('name', 'Enemy')}"
     lines = [title, '', enemy.get('ascii', ''), '']
     lines.append(f"Enemy HP: {enemy.get('hp', 0)}")
     lines.append(f"Your HP: {state.player_hp}/{state.player_max_hp}")
+    lines.append(f"Your Attack: {state.attack} | Your Defense: {state.defense}")
     lines.append('')
-    lines.append('[F] Attack    [L] Flee')
-    lines.append('\n(Press F to attack, L to flee)')
+    lines.append('Choose an action:')
+
+    # Display actions using keys 1-5
+    for key, action in state.BATTLE_ACTIONS.items():
+        # Map color names to colorama codes if available
+        color_code = getattr(state, f"Fore.{action['color']}_EX", fore) if hasattr(state, 'Fore') else ''
+        lines.append(f"[{key}] {color_code}{action['name']}{style.RESET_ALL}")
+    
+    lines.append('')
+    lines.append('[L] Flee Battle')
     print(center_text('\n'.join(lines)))
 
 
@@ -211,6 +231,7 @@ def display_death_splash():
 
 
 def display_menu():
+    """Display the main in-game menu."""
     if state.game_state != 'menu':
         return
     clear_screen()
@@ -229,16 +250,16 @@ def display_menu():
         '[ESC] Quit Game',
     ])
     menu_text = '\n'.join(lines) + '\n'
-    print(center_text(menu_text))
+    menu_text = '\n'.join(lines) + '\n'
+    print(center_text(menu_text), end='', flush=True)
 
 
 def switch_to_incremental():
-    # Only allow opening incremental view from the main menu
+    """Only allow opening incremental view from the main menu."""
     if state.game_state != 'menu':
-        # silently block when not in main menu
         return
     state.game_state = 'incremental'
-    clear_screen()
+    # Use the existing function to render the incremental view
     display_incremental()
 
 
