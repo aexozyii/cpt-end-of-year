@@ -10,31 +10,45 @@ def clear_screen():
 
 
 def center_text(text: str) -> str:
-    columns, lines = shutil.get_terminal_size()
+    try:
+        columns, lines = shutil.get_terminal_size()
+    except Exception:
+        # Fallback for environments where get_terminal_size fails
+        columns, lines = 80, 24 
+        
     text_lines = text.split('\n')
     
-    # Calculate vertical padding required to fill the screen
     vertical_padding_top = max((lines - len(text_lines)) // 2, 0)
     vertical_padding_bottom = max(lines - len(text_lines) - vertical_padding_top, 0)
 
     centered_lines = [line.center(columns) for line in text_lines]
     
-    # Pad the text vertically to ensure it uses all available lines in the terminal
     full_output = ('\n' * vertical_padding_top + 
                    '\n'.join(centered_lines) + 
                    '\n' * vertical_padding_bottom)
     
-    # Return the full string padded horizontally and vertically
     return full_output
 
 
 def display_start_menu():
-    if state.game_state != 'start_menu': return
-    # clear_screen() # No need for clear_screen here anymore
+    """Display the initial start menu (New Game / Load Game)."""
+    # Force clear screen with os.system just in case your terminal is stubborn here
+    os.system('cls' if os.name == 'nt' else 'clear')
+
+    if state.game_state != 'start_menu':
+        # This should ideally never be reached when called from main() startup
+        print("Error: Not in start menu state.")
+        return
+    
     lines = ['GAME MENU', '==========', '']
-    # ... (lines append logic) ...
+    lines.append('[1] New Game')
+    if persistence.has_save_file():
+        lines.append('[2] Load Game')
+    lines.append('[ESC] Exit')
     menu_text = '\n'.join(lines) + '\n'
-    print(center_text(menu_text), end='', flush=True)
+    
+    # Use the center_text function and ensure immediate flush
+    print(center_text(menu_text), end='', flush=True) 
 
 
 def display_incremental():
