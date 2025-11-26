@@ -396,3 +396,97 @@ def handle_number_key(key: str):
     if state.game_state == 'meta':
         buy_meta_upgrade(key)
         return
+
+# In Actions.py
+
+def battle_execute_code():
+    """Deal generic damage (Red Action)."""
+    if state.game_state != 'battle' or not state.current_battle_enemy: return
+    # Generic damage amount (e.g., base attack + a small bonus)
+    damage = state.attack + 5
+    state.current_battle_enemy['hp'] -= damage
+    # Check for enemy death (logic handled below in a new general function)
+    end_battle_turn(f"You deal {damage} damage to the enemy.")
+
+def battle_defend_code():
+    """Block generic amount (Blue Action)."""
+    if state.game_state != 'battle' or not state.current_battle_enemy: return
+    # Implement temporary defense buff for the next enemy turn
+    state.player_defense_modifier += 10 # Example generic block amount
+    end_battle_turn(f"You raise your guard, increasing defense for the next attack.")
+
+def battle_recover():
+    """Heal generic amount (White Action)."""
+    if state.game_state != 'battle' or not state.current_battle_enemy: return
+    heal_amount = 15 # Example generic heal
+    state.player_hp = min(state.player_max_hp, state.player_hp + heal_amount)
+    end_battle_turn(f"You recover {heal_amount} HP.")
+
+def battle_hack():
+    """Debuff generic amount (Black Action)."""
+    if state.game_state != 'battle' or not state.current_battle_enemy: return
+    # Debuff enemy attack for subsequent turns
+    state.enemy_attack_modifier -= 5 # Example generic debuff
+    end_battle_turn(f"You debuff the enemy's systems, lowering their attack.")
+
+def battle_debug():
+    """Buff generic amount (Green Action)."""
+    if state.game_state != 'battle' or not state.current_battle_enemy: return
+    # Buff player attack for subsequent turns
+    state.attack += 5 # Example generic buff
+    end_battle_turn(f"You optimize your code, permanently increasing your attack.")
+
+# Update the handling of a battle turn end, which includes the enemy's move
+
+def end_battle_turn(player_message: str):
+    """Handles checking enemy status and then the enemy's turn."""
+    if state.current_battle_enemy['hp'] <= 0:
+        win_battle() # Assume a win_battle function exists or is created
+        return
+    
+    # Enemy turn logic
+    enemy = state.current_battle_enemy
+    enemy_attack_power = enemy.get('atk', 0) + state.enemy_attack_modifier
+    
+    # Consider player defense modifiers
+    defense_applied = state.defense + state.player_defense_modifier
+    damage_taken = max(0, enemy_attack_power - defense_applied)
+    state.player_hp -= damage_taken
+
+    enemy_message = f"The enemy attacks you for {damage_taken} damage."
+
+    # Reset temporary modifiers after the turn
+    state.player_defense_modifier = 0
+
+    if state.player_hp <= 0:
+        lose_battle() # Assume a lose_battle function exists or is created
+        return
+    
+    # Display the result of the turn and re-render
+    import render
+    render.flash_message(f"{player_message}\n{enemy_message}", delay=1.5)
+
+# We need a new dispatcher function to route number keys 1-5 during battle
+
+def handle_number_key(key: str):
+    """Routes numeric key presses based on the current game state."""
+    if state.game_state == 'incremental':
+        buy_upgrade_key(key)
+    elif state.game_state == 'shop':
+        buy_shop_item(key)
+    elif state.game_state == 'inventory':
+        equip_inventory_index(key)
+    elif state.game_state == 'meta':
+        buy_meta_upgrade(key)
+    elif state.game_state == 'battle':
+        # Route battle actions based on key press
+        action_map = {
+            '1': battle_execute_code,
+            '2': battle_defend_code,
+            '3': battle_recover,
+            '4': battle_hack,
+            '5': battle_debug,
+        }
+        action_func = action_map.get(key)
+        if action_func:
+            action_func()
