@@ -133,8 +133,6 @@ keyboard.add_hotkey('m', render.switch_to_map)
 keyboard.add_hotkey('q', render.switch_to_menu)
 keyboard.add_hotkey('b', actions.return_from_shop)
 keyboard.add_hotkey('i', actions.toggle_inventory)
-keyboard.add_hotkey('f', actions.battle_attack)
-keyboard.add_hotkey('l', actions.flee_battle)
 keyboard.on_release_key('space', lambda e: actions.on_space_release())
 
 
