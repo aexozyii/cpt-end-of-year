@@ -22,8 +22,6 @@ def save_game():
             'defense': state.defense,
             'has_bag': state.has_bag,
             'inventory': state.inventory,
-            'equipped_accessory': state.equipped_accessory,
-            'action_upgrades': {a['id']: a.get('level', 0) for a in state.action_upgrades},
             'equipped_weapon': state.equipped_weapon,
             'equipped_armour': state.equipped_armour,
             'meta_currency': state.meta_currency,
@@ -74,18 +72,6 @@ def load_game():
         state.inventory = s.get('inventory', state.inventory)
         state.equipped_weapon = s.get('equipped_weapon', state.equipped_weapon)
         state.equipped_armour = s.get('equipped_armour', state.equipped_armour)
-        # restore equipped accessory if present
-        try:
-            state.equipped_accessory = s.get('equipped_accessory', state.equipped_accessory)
-        except Exception:
-            pass
-        # restore action upgrade levels
-        try:
-            saved_action_upgrades = s.get('action_upgrades', {})
-            for a in state.action_upgrades:
-                a['level'] = int(saved_action_upgrades.get(a['id'], a.get('level', 0)))
-        except Exception:
-            pass
         # load meta progression
         state.meta_currency = int(s.get('meta_currency', state.meta_currency))
         saved_meta = s.get('meta_upgrades', {})
@@ -122,17 +108,10 @@ def reset_game():
     state.inventory_capacity = 0
     state.equipped_weapon = None
     state.equipped_armour = None
-    state.equipped_accessory = None
     for upg in state.upgrades:
         upg['purchased'] = False
     for item in state.shop_items:
         item['purchased'] = False
-    # reset action upgrades levels
-    try:
-        for a in state.action_upgrades:
-            a['level'] = 0
-    except Exception:
-        pass
 
     # generate initial rooms for a fresh game
     try:
@@ -156,17 +135,10 @@ def reset_run():
     state.inventory_capacity = 0
     state.equipped_weapon = None
     state.equipped_armour = None
-    state.equipped_accessory = None
     for upg in state.upgrades:
         upg['purchased'] = False
     for item in state.shop_items:
         item['purchased'] = False
-    # reset action upgrades for new run
-    try:
-        for a in state.action_upgrades:
-            a['level'] = 0
-    except Exception:
-        pass
     # regenerate rooms and load the first room for the run
     try:
         state.rooms = state.create_rooms(5, visits=state.map_visit_count)

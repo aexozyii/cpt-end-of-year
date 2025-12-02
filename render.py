@@ -4,7 +4,14 @@ import state
 import persistence
 import time
 import re
-import traceback # Added for debugging placeholders
+try:
+    from colorama import Fore, Style
+except ImportError:
+    class Fore:
+        BLACK = ''
+    class Style:
+        DIM = ''
+        RESET_ALL = ''
 
 
 def clear_screen():
@@ -12,6 +19,7 @@ def clear_screen():
 
 
 def center_text(text: str) -> str:
+    import re
     # compute terminal size
     columns, lines = shutil.get_terminal_size()
     text_lines = text.split('\n')
@@ -33,7 +41,13 @@ def center_text(text: str) -> str:
 
 
 def center_block(lines: list) -> str:
-    """Center a block of lines using a single left padding so each row aligns vertically."""
+    """Center a block of lines using a single left padding so each row aligns vertically.
+
+    This computes the printable width of each line (stripping ANSI sequences), finds
+    the maximum printable width, computes one left padding to center the block, and
+    prefixes every line with that padding. Returns the block as a single string
+    with vertical centering applied.
+    """
     columns, term_lines = shutil.get_terminal_size()
     ansi_re = re.compile(r"\x1b\[[0-9;]*m")
     printable_lens = [len(ansi_re.sub('', l)) for l in lines]
@@ -51,7 +65,7 @@ _last_render_height = 0
 
 def display_start_menu():
     """Display the initial start menu (New Game / Load Game)."""
-    if state.game_state != 'menu':
+    if state.game_state != 'start_menu':
         return
     clear_screen()
     lines = ['GAME MENU', '==========', '']
@@ -141,15 +155,63 @@ def display_shop():
     print(center_text('\n'.join(lines)))
 
 
+def get_stats_bar() -> str:
+    """Build a horizontal stats bar showing player HP, SP, attack, defense, and floor.
+    Returns a formatted string suitable for display at the top of the map."""
+    attack_stat = getattr(state, 'attack', 0)
+    defense_stat = getattr(state, 'defense', 0)
+    hp_stat = getattr(state, 'player_hp', 100)
+    max_hp_stat = getattr(state, 'player_max_hp', 100)
+    floor_num = getattr(state, 'map_visit_count', 0)
+    
+    # Build bar: HP | ATK | DEF | Floor
+    hp_bar = f"{Fore.LIGHTGREEN_EX}HP:{hp_stat}/{max_hp_stat}{Style.RESET_ALL}"
+    atk_bar = f"{Fore.RED}ATK:{attack_stat}{Style.RESET_ALL}"
+    def_bar = f"{Fore.BLUE}DEF:{defense_stat}{Style.RESET_ALL}"
+    flr_bar = f"Floor: {floor_num}"
+    
+    stats_bar = f"  {hp_bar}  |  {atk_bar}  |  {def_bar}  |  {flr_bar}"
+    return stats_bar
+
+
 def display_inventory():
     if not state.has_bag:
         return
     clear_screen()
     title = 'INVENTORY'
     lines = [title, '', f'Slots: {len(state.inventory)}/{state.inventory_capacity}', '']
+    # show equipped slots
+    wep = state.equipped_weapon.get('name') if getattr(state, 'equipped_weapon', None) else 'None'
+    arm = state.equipped_armour.get('name') if getattr(state, 'equipped_armour', None) else 'None'
+    acc = state.equipped_accessory.get('name') if getattr(state, 'equipped_accessory', None) else 'None'
+    lines.append(f'Equipped -> Weapon: {wep}   Armour: {arm}   Accessory: {acc}')
+    lines.append('')
+    
+    # Display player stats
+    lines.append('--- STATS ---')
+    attack_stat = getattr(state, 'attack', 0)
+    defense_stat = getattr(state, 'defense', 0)
+    hp_stat = getattr(state, 'player_hp', 100)
+    max_hp_stat = getattr(state, 'player_max_hp', 100)
+    lines.append(f'Attack: {attack_stat}  |  Defense: {defense_stat}')
+    lines.append(f'HP: {hp_stat}/{max_hp_stat}')
+    
+    # Display action upgrade levels
+    lines.append('')
+    lines.append('--- ACTION UPGRADES ---')
+    for upg in state.action_upgrades:
+        upg_name = upg.get('name', 'Unknown')
+        upg_level = upg.get('level', 0)
+        upg_max = upg.get('max_level', 1)
+        bonus = int(upg_level * upg.get('amount', 0))
+        lines.append(f'{upg_name}: Lv {upg_level}/{upg_max} (+{bonus})')
+    
+    lines.append('')
     if not state.inventory:
         lines.append('(empty)')
     else:
+        # build two-column grid of items
+        items = []
         for i, it in enumerate(state.inventory, 1):
             if isinstance(it, dict):
                 name = it.get('name', 'item')
@@ -160,19 +222,22 @@ def display_inventory():
                     equipped = True
                 if state.equipped_armour and state.equipped_armour.get('name') == name:
                     equipped = True
-                lines.append(f'{i}. {name} (level {lvl}) [{itype}]' + (' [EQUIPPED]' if equipped else ''))
-                # add ascii art below the item
-                ascii_art = it.get('ascii', '')
-                if ascii_art:
-                    for art_line in ascii_art.split('\n'):
-                        if art_line.strip() == '':
-                            continue
-                        lines.append('    ' + art_line)
+                if state.equipped_accessory and state.equipped_accessory.get('name') == name:
+                    equipped = True
+                desc = f'{i}. {name} (lvl {lvl}) [{itype}]' + (' [EQUIPPED]' if equipped else '')
             else:
-                lines.append(f'{i}. {it}')
+                desc = f'{i}. {it}'
+            items.append(desc)
+        # render in two columns
+        col_width = 42
+        for left, right in zip(items[0::2], items[1::2] + [''] * (len(items[0::2]) - len(items[1::2]))):
+            lines.append(f'{left:<{col_width}}{right}')
+        # if odd item count, append the last one
+        if len(items) % 2 == 1:
+            lines.append(items[-1])
     lines.append('')
     lines.append('Press I to close inventory')
-    lines.append('Press the number key to equip a sword/armour.')
+    lines.append('Press the number key to equip/use an item.')
     print(center_text('\n'.join(lines)))
 
 
@@ -203,111 +268,343 @@ def render_map():
         return
     # Move cursor home; we'll overwrite previous frame in-place to avoid flashing
     print('\033[H', end='', flush=True)
+    # build a printable map (placeholder for player) to ensure fixed-width rows
+    printable_map = [list(row) for row in state.current_map]
+    # track colored cells for later: (y, x) -> color_code (without wrapping char)
+    cell_colors = {}
     
-    try:
-        # build a printable map (placeholder for player) to ensure fixed-width rows
-        printable_map = [list(row) for row in state.current_map]
-        # Rest of the map rendering logic requires many specific state variables.
-        # If they aren't defined, this function would crash. We wrap in try-except
-        # to just print a placeholder if map logic isn't fully implemented yet.
-        # Example of commented out original logic that needs state variables:
-        # for (ty, tx), feature in state.TELEPORTS.items():
-        #     if 0 <= ty < state.ROOM_HEIGHT and 0 <= tx < state.ROOM_WIDTH:
-        #         if not (ty == state.player_y and tx == state.player_x):
-        #             printable_map[ty][tx] = 'S'
-        # ...
-        print('\n'.join(''.join(row) for row in printable_map))
+    # draw teleport markers with color
+    for (ty, tx), feature in state.TELEPORTS.items():
+        if 0 <= ty < state.ROOM_HEIGHT and 0 <= tx < state.ROOM_WIDTH:
+            if not (ty == state.player_y and tx == state.player_x):
+                # different teleport features show different letters and colors
+                if feature == 'shop':
+                    printable_map[ty][tx] = 'S'
+                    cell_colors[(ty, tx)] = Fore.YELLOW
+                elif feature == 'action_upgrades':
+                    printable_map[ty][tx] = 'U'
+                    cell_colors[(ty, tx)] = Fore.CYAN
+                else:
+                    printable_map[ty][tx] = 'S'
+                    cell_colors[(ty, tx)] = Fore.YELLOW
+    # draw enemies (alive) as single chars (B for boss)
+    for (ey, ex), enemy in list(state.enemies.items()):
+        if 0 <= ey < state.ROOM_HEIGHT and 0 <= ex < state.ROOM_WIDTH:
+            if not (ey == state.player_y and ex == state.player_x):
+                if enemy.get('is_boss'):
+                    printable_map[ey][ex] = 'B'
+                    cell_colors[(ey, ex)] = Fore.LIGHTRED_EX
+                else:
+                    printable_map[ey][ex] = 'E'
+                    cell_colors[(ey, ex)] = Fore.RED
 
+    # draw exit indicators for adjacent-room openings (only on floor cells)
+    try:
+        for (ey, ex), d in getattr(state, 'EXITS', {}).items():
+            if 0 <= ey < state.ROOM_HEIGHT and 0 <= ex < state.ROOM_WIDTH:
+                if printable_map[ey][ex] == state.FLOOR_CHAR:
+                    arrow = {'left': '<', 'right': '>', 'up': '^', 'down': 'v'}.get(d, '+')
+                    printable_map[ey][ex] = arrow
+                    cell_colors[(ey, ex)] = Fore.GREEN
     except Exception:
-        # Fallback if the required state variables for the map aren't set up yet
-        print(center_text("Map rendering placeholder. Move logic requires more state variables."))
-        # print(traceback.format_exc()) # Uncomment this line to debug missing state variables
+        pass
+
+    # place a simple placeholder for the player so printable widths stay consistent
+    placeholder = '~'
+    printable_map[state.player_y][state.player_x] = placeholder
+
+    # build plain rows (fixed width)
+    rows_plain = [''.join(r) for r in printable_map]
+
+    # Double each character horizontally and apply colors
+    rows_doubled = []
+    for y, row in enumerate(rows_plain):
+        colored_row = ''
+        for x, ch in enumerate(row):
+            if (y, x) in cell_colors:
+                # Wrap the doubled char with the color code
+                color = cell_colors[(y, x)]
+                colored_row += f'{color}{ch * 2}{Style.RESET_ALL}'
+            else:
+                colored_row += ch * 2
+        rows_doubled.append(colored_row)
+
+    # now create colored rows by substituting the doubled placeholder with two colored player chars
+    rows_colored = []
+    ph = placeholder * 2
+    pcol = state.PLAYER_CHAR * 2
+    for r in rows_doubled:
+        if ph in r:
+            rows_colored.append(r.replace(ph, pcol, 1))
+        else:
+            rows_colored.append(r)
+
+    # build legend lines to display to the right of the map (deduplicated, decorative items hidden)
+    raw_legend = [
+        'Legend:',
+        f'{state.PLAYER_CHAR} You',
+        f'{Fore.RED}E{Style.RESET_ALL}  Enemy',
+        f'{Fore.LIGHTRED_EX}B{Style.RESET_ALL}  Boss',
+        f'{Fore.YELLOW}S{Style.RESET_ALL}  Shop',
+        f'{Fore.CYAN}U{Style.RESET_ALL}  Upgrade',
+        '!  Event',
+        'H  Fountain (heals)',
+        '≈  Water (blocked)',
+        '.  Floor',
+        f'{state.WALL_CHAR}  Vertical Wall',
+        f'{state.H_WALL_CHAR}  Horizontal Wall',
+        '^  Rock (obstacle)',
+    ]
+    # preserve order but remove duplicates (some entries could be identical in rare cases)
+    legend = []
+    seen = set()
+    for line in raw_legend:
+        key = line
+        if key not in seen:
+            legend.append(line)
+            seen.add(key)
+
+    # combine colored rows with legend lines ensuring we use printable widths
+    combined_lines = []
+    max_lines = max(len(rows_colored), len(legend))
+    for i in range(max_lines):
+        left_colored = rows_colored[i] if i < len(rows_colored) else ' ' * (state.ROOM_WIDTH * 2)
+        right = legend[i] if i < len(legend) else ''
+        combined_lines.append(left_colored + '   ' + right)
+
+    # small minimap showing all generated rooms (one row), highlight current room in red
+    try:
+        rooms = getattr(state, 'rooms', [])
+        mini_items = []
+        for i in range(len(rooms)):
+            if i == getattr(state, 'current_room_index', 0):
+                mini_items.append(state.Fore.LIGHTRED_EX + '■' + state.Style.RESET_ALL)
+            else:
+                mini_items.append('□')
+        minimap_line = 'Rooms: ' + ' '.join(mini_items)
+    except Exception:
+        minimap_line = ''
+
+    # Add stats bar at the top
+    stats_bar = get_stats_bar()
+    map_lines = [stats_bar, ''] + combined_lines + [''] + [ minimap_line, 'Use WASD to move (hold two keys for diagonals). Press Q to return to menu. Press ESC to exit.' ]
+
+    # Render the centered block but avoid flicker by overwriting previous frame.
+    out = center_block(map_lines)
+    out_lines = out.split('\n')
+    # calculate printable widths per line (strip ANSI)
+    printable_lens = [_ansi_re.sub('', l) for l in out_lines]
+    max_width = max((len(s) for s in printable_lens), default=0)
+
+    global _last_render_height
+    # print each line and pad with spaces to fully overwrite previous content
+    for line in out_lines:
+        plain = _ansi_re.sub('', line)
+        pad = max_width - len(plain)
+        try:
+            print(line + (' ' * pad))
+        except UnicodeEncodeError:
+            # fallback: replace non-encodable chars so the renderer doesn't crash
+            safe = line.encode('ascii', 'replace').decode('ascii')
+            print(safe + (' ' * pad))
+    # if previous frame had more lines, clear the remainder
+    if _last_render_height > len(out_lines):
+        blank = ' ' * max_width
+        for _ in range(_last_render_height - len(out_lines)):
+            print(blank)
+    _last_render_height = len(out_lines)
+
+
+def display_battle():
+    if state.game_state != 'battle' or not state.current_battle_enemy:
+        return
+    clear_screen()
+    enemy = state.current_battle_enemy
+    title = f"{Fore.LIGHTRED_EX}BATTLE: {enemy.get('name', 'Enemy')}{Style.RESET_ALL}"
+    lines = [title, '', enemy.get('ascii', ''), '']
+    lines.append(f"{Fore.LIGHTRED_EX}Enemy HP:{Style.RESET_ALL} {enemy.get('hp', 0)}")
+    lines.append(f"{Fore.LIGHTGREEN_EX}Your HP:{Style.RESET_ALL} {state.player_hp}/{state.player_max_hp}")
+    # show transient battle status (shield, buff, debuff, skill points)
+    s_status = getattr(state, 'current_battle_status', {})
+    shield = s_status.get('player_shield', 0)
+    buff = s_status.get('player_buff', 0)
+    dcharge = s_status.get('enemy_debuff', 0)
+    sp = s_status.get('skill_points', 0)
+    sp_max = s_status.get('skill_points_max', sp)
+    lines.append(f"{Fore.CYAN}Shield:{Style.RESET_ALL} {shield}   {Fore.GREEN}Buff:{Style.RESET_ALL} +{buff}   {Fore.YELLOW}EnemyDebuff:{Style.RESET_ALL} -{dcharge}   {Fore.LIGHTBLUE_EX}SP:{Style.RESET_ALL} {sp}/{sp_max}")
+    lines.append('')
+    # format actions into two columns with color coding
+    left_actions = [
+        f"{Fore.RED}[1] Execute (Red) - 1SP{Style.RESET_ALL}",
+        f"{Fore.BLUE}[2] Defend (Blue) - 2SP{Style.RESET_ALL}",
+        f"{Fore.WHITE}[3] Recover (White) -> +3SP{Style.RESET_ALL}"
+    ]
+    right_actions = [
+        f"{Fore.BLACK}[4] Hack (Black) - 2SP{Style.RESET_ALL}",
+        f"{Fore.GREEN}[5] Debug (Green) - 2SP{Style.RESET_ALL}",
+        ""
+    ]
+    # pad each left action to width and join with right column to avoid wrapping
+    max_rows = max(len(left_actions), len(right_actions))
+    for i in range(max_rows):
+        la = left_actions[i] if i < len(left_actions) else ''
+        ra = right_actions[i] if i < len(right_actions) else ''
+        lines.append(f"{la:<36}{ra}")
+    lines.append('\n(Press 1-5 to use an action, I for action descriptions)')
+    print(center_text('\n'.join(lines)))
+
+
+def display_battle_action_descriptions():
+    """Show detailed descriptions of each battle action."""
+    if state.game_state != 'battle':
+        return
+    clear_screen()
+    title = 'BATTLE ACTIONS'
+    descriptions = [
+        title,
+        '=' * 40,
+        '',
+        '[1] Execute (Red) - 1 SP',
+        'Direct attack. Deals damage equal to your',
+        'attack stat plus any buffs.',
+        'Resourceless and reliable.',
+        '',
+        '[2] Defend (Blue) - 2 SP',
+        'Grant yourself a shield that blocks',
+        'incoming damage this turn.',
+        'Shield strength scales with defense.',
+        '',
+        '[3] Recover (White) - 0 SP',
+        'Restore 3+ SP (modified by upgrades).',
+        'Only action usable while stunned.',
+        'Essential for maintaining action economy.',
+        '',
+        '[4] Hack (Black) - 2 SP',
+        'Debuff the enemy, reducing their attack',
+        'power for the rest of the battle.',
+        'Cumulative debuff capped at 10.',
+        '',
+        '[5] Debug (Green) - 2 SP',
+        'Buff yourself, increasing your attack',
+        'for the rest of the battle.',
+        'Scales with your current attack stat.',
+        '',
+        'Press I to return to battle...',
+    ]
+    print(center_text('\n'.join(descriptions)))
+
+
+def display_action_upgrades():
+    if state.game_state != 'action_upgrade':
+        return
+    clear_screen()
+    title = 'ACTION UPGRADE ALTAR'
+    lines = [title, '', 'Spend currency to upgrade your combat actions:', '']
+    for upg in state.action_upgrades:
+        lvl = upg.get('level', 0)
+        ml = upg.get('max_level', 1)
+        cost = upg.get('cost', 0)
+        # grey out (dim) if player can't afford or already at max level
+        key = upg.get('key')
+        name = upg.get('name')
+        desc = upg.get('desc')
+        if lvl >= ml:
+            # already maxed out
+            line = f'[{key}] {name} Lv:{lvl}/{ml} - {desc} (MAXED)'
+            line = f'{Fore.BLACK}{Style.DIM}{line}{Style.RESET_ALL}'
+        elif state.count < cost:
+            # can't afford
+            line = f'[{key}] {name} Lv:{lvl}/{ml} - {desc} (Cost: {cost})'
+            line = f'{Fore.BLACK}{Style.DIM}{line}{Style.RESET_ALL}'
+        else:
+            # can afford
+            line = f'[{key}] {name} Lv:{lvl}/{ml} - {desc} (Cost: {cost})'
+        lines.append(line)
+    lines.append('')
+    lines.append('[B] Return to Map')
+    lines.append('(Press number key to buy upgrade)')
+    print(center_text('\n'.join(lines)))
+
+
+def display_victory_splash(reward: int):
+    """Show a small victory splash screen with earned resources."""
+    clear_screen()
+    lines = ["YOU WON!", f"Resources gained: {reward}", ""]
+    print(center_text('\n'.join(lines)))
+
+
+def display_death_splash():
+    """Show a death splash screen (rogue-lite reset)."""
+    clear_screen()
+    lines = ['YOU DIED', '']
+    lines.append('')
+    print(center_text('\n'.join(lines)))
 
 
 def display_menu():
-    # Helper alias
-    display_start_menu()
+    if state.game_state != 'menu':
+        return
+    clear_screen()
+    # Build menu lines and include inventory hint if player has a bag
+    lines = [
+        'MAIN MENU',
+        '===========',
+        '',
+        '[R] Resources (incremental)',
+        '[M] Map',
+    ]
+    if state.has_bag:
+        lines.append('[I] Inventory')
+    lines.extend([
+        '[Q] Menu',
+        '[ESC] Quit Game',
+    ])
+    menu_text = '\n'.join(lines) + '\n'
+    print(center_text(menu_text))
 
-# --- Functions to handle state switching (needed for main.py bindings) ---
 
 def switch_to_incremental():
-    if state.game_state != 'battle':
-        state.game_state = 'incremental'
-        display_incremental()
+    # Only allow opening incremental view from the main menu
+    if state.game_state != 'menu':
+        # silently block when not in main menu
+        return
+    state.game_state = 'incremental'
+    clear_screen()
+    display_incremental()
+
 
 def switch_to_map():
-    if state.game_state != 'battle':
-        state.game_state = 'explore'
-        render_map()
+    # Only allow opening the map from the main menu
+    if state.game_state != 'menu':
+        # silently block when not in main menu
+        return
+    # When opening the map via the menu, place the player at the map center
+    # increment visit counter to increase difficulty/spawns
+    state.map_visit_count = getattr(state, 'map_visit_count', 0) + 1
+    # regenerate rooms for this visit count and load the first room
+    try:
+        state.rooms = state.create_rooms(5, visits=state.map_visit_count)
+        # restore or clamp current room if present, otherwise start at 0
+        idx = getattr(state, 'current_room_index', 0)
+        try:
+            idx = max(0, min(idx, len(state.rooms) - 1))
+        except Exception:
+            idx = 0
+        state.current_room_index = idx
+        state.load_room(idx)
+    except Exception:
+        state.current_map = state.create_map()
+    state.game_state = 'explore'
+    # center inside the walls
+    state.player_x = state.ROOM_WIDTH // 2
+    state.player_y = state.ROOM_HEIGHT // 2
+    clear_screen()
+    render_map()
+
 
 def switch_to_menu():
-    if state.game_state != 'battle':
-        state.game_state = 'menu'
-        display_menu()
-
-
-# --- Display Battle Function (as modified previously) ---
-
-def display_battle():
-    """Renders the battle interface with improved formatting."""
-    if state.game_state not in ['battle', 'meta', 'explore']:
-        return
-
-    # ANSI Color Codes
-    RED = '\033[91m'
-    BLUE = '\033[94m'
-    WHITE = '\033[97m'
-    YELLOW = '\033[93m'
-    GREEN = '\033[92m'
-    CYAN = '\033[96m'
-    MAGENTA = '\033[95m'
-    ENDC = '\033[0m'
-
-    lines = []
-    lines.append(f"{CYAN}--- TURN {state.turn_count} ---{ENDC}")
-    lines.append("")
-
-    # --- ENEMY STATS ---
-    lines.append(f"{RED}ENEMY STATUS:{ENDC}")
-    lines.append(f"  HP: {WHITE}[{RED}{state.enemy_hp}/{state.enemy_max_hp}{WHITE}]{ENDC}")
-    lines.append(f"  Shield: {WHITE}[{BLUE}{state.enemy_shield}{WHITE}]{ENDC}")
-    lines.append(f"  Status Effects: {YELLOW}Buffs: {state.enemy_buffs} | Debuffs: {state.enemy_debuffs}{ENDC}")
-    lines.append("")
-
-    lines.append("--------------------------------------------------")
-
-    # --- PLAYER STATS ---
-    lines.append(f"{GREEN}PLAYER STATUS:{ENDC}")
-    lines.append(f"  HP: {WHITE}[{RED}{state.player_hp}/{state.player_max_hp}{WHITE}]{ENDC}")
-    lines.append(f"  Shield: {WHITE}[{BLUE}{state.player_shield}{WHITE}]{ENDC}")
-    lines.append(f"  Status Effects: {YELLOW}Buffs: {state.player_buffs} | Debuffs: {state.player_debuffs}{ENDC}")
-    lines.append("")
-    
-    lines.append("--------------------------------------------------")
-
-    # --- BATTLE LOG ---
-    lines.append(f"{MAGENTA}LOG:{ENDC}")
-    for msg in state.log_messages:
-        lines.append(f"  {msg}")
-    lines.append("")
-    
-    lines.append("--------------------------------------------------")
-
-    # --- ACTIONS/MENU ---
+    # don't allow switching to menu while in battle
     if state.game_state == 'battle':
-        lines.append(f"{CYAN}ACTIONS LEFT: {state.player_actions_left}{ENDC}")
-        lines.append("Choose an action (Press key):")
-        lines.append(f"  [{RED}R{ENDC}] Execute Code (Deal Damage)")
-        lines.append(f"  [{BLUE}B{ENDC}] Defend Code (Gain Shield)")
-        lines.append(f"  [{WHITE}W{ENDC}] Recover (Heal HP)")
-        lines.append(f"  [{YELLOW}K{ENDC}] Hack (Debuff Enemy)")
-        lines.append(f"  [{GREEN}G{ENDC}] Debug (Buff Self)")
-        lines.append(f"  [{CYAN}L{ENDC}] Leave Battle")
-
-    elif state.game_state == 'explore':
-         lines.append(f"{GREEN}Battle finished. Press [M] to return to map.{ENDC}")
-    
-    elif state.game_state == 'meta':
-        lines.append(f"{RED}You were defeated. Press [B] to go to Meta Upgrades.{ENDC}")
-
-    print(center_block(lines))
+        return
+    state.game_state = 'menu'
+    display_menu()
