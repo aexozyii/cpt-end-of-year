@@ -1,8 +1,9 @@
+# actions.py
 import time
 import os
 import random
-import state
 import render
+import state
 import persistence
 
 # Skill point configuration for battles
@@ -19,7 +20,6 @@ ACTION_COSTS = {
 
 
 def on_space():
-
     if state.space_pressed:
         return
     state.space_pressed = True
@@ -108,8 +108,8 @@ def buy_shop_item(key: str):
                         item_obj['ascii'] = af.read().rstrip('\n')
                 except Exception:
                     item_obj['ascii'] = (
-                        '  /|\n'
-                        ' /_|_\n'
+                        '  /|\\\n'
+                        ' /_|_\\\n'
                         '   |\n'
                         '   |\n'
                     )
@@ -227,7 +227,6 @@ def equip_inventory_index(key: str):
                 state.player_hp = min(state.player_hp, state.player_max_hp)
             elif pst == 'attack':
                 state.attack = max(0, int(state.attack - pamt))
-        # if equipping an attack accessory and weapon is equipped, add its bonus to weapon attack
         # apply this accessory
         if subtype == 'max_hp':
             state.player_max_hp = int(state.player_max_hp + amount)
@@ -638,8 +637,7 @@ def _battle_win():
     render.clear_screen()
     render.render_map()
     persistence.save_game()
-
-
+    
 def _battle_lose():
     render.display_death_splash()
     time.sleep(3)
@@ -655,8 +653,7 @@ def _battle_lose():
     state.current_battle_status = {}
     state.game_state = 'meta'
     render.display_meta_upgrades(meta_reward)
-
-
+    
 def _enemy_retaliate(enemy):
     # compute enemy attack after debuff
     atk = max(0, enemy.get('atk', 0) - state.current_battle_status.get('enemy_debuff', 0))
@@ -690,8 +687,7 @@ def _enemy_retaliate(enemy):
         _battle_lose()
         return False
     return True
-
-
+    
 def _get_action_upgrade_bonus(action_id: str) -> int:
     """Return the cumulative bonus amount for an action upgrade id."""
     try:
@@ -702,7 +698,6 @@ def _get_action_upgrade_bonus(action_id: str) -> int:
         return total
     except Exception:
         return 0
-
 
 def execute_code():
     """Red: direct attack (resourceless)."""
@@ -741,7 +736,6 @@ def execute_code():
     if alive:
         render.display_battle()
 
-
 def defend_code():
     """Blue: gain a temporary shield that blocks incoming damage."""
     if state.game_state != 'battle' or not state.current_battle_enemy:
@@ -774,7 +768,6 @@ def defend_code():
     if alive:
         render.display_battle()
 
-
 def recover():
     """White: heal the player."""
     if state.game_state != 'battle' or not state.current_battle_enemy:
@@ -800,7 +793,6 @@ def recover():
     alive = _enemy_retaliate(state.current_battle_enemy)
     if alive:
         render.display_battle()
-
 
 def hack():
     """Black: debuff enemy attack (reduce enemy atk for the fight)."""
@@ -837,7 +829,6 @@ def hack():
     if alive:
         render.display_battle()
 
-
 def debug_action():
     """Green: buff player's attack for the fight."""
     if state.game_state != 'battle' or not state.current_battle_enemy:
@@ -867,7 +858,6 @@ def debug_action():
     if alive:
         render.display_battle()
 
-
 def flee_battle():
     if state.game_state != 'battle':
         return
@@ -882,7 +872,6 @@ def flee_battle():
     state.game_state = 'explore'
     render.clear_screen()
     render.render_map()
-
 
 def handle_number_key(key: str):
     # Battle context: numeric keys map to combat action types
@@ -919,4 +908,3 @@ def handle_number_key(key: str):
     if state.game_state == 'action_upgrade':
         buy_action_upgrade(key)
         return
-
