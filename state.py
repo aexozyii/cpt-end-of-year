@@ -31,11 +31,14 @@ rooms = []
 current_room_index = 0
 
 
-resources = [
-    {
-        moss = 0
-    }
-]
+resources = {
+    'GordonGeo': 0,
+    'Lollipop': 0,
+    'CameronChildren': 0,
+    'Cards': 0,
+    'PMoons' 0
+}
+
 
 def create_room(visits: int = 0):
     """Create a single room map (ROOM_WIDTH x ROOM_HEIGHT) with walls, events, enemies and optionally a fountain.
