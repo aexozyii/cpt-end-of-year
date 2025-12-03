@@ -30,6 +30,13 @@ map_visit_count = 0
 rooms = []
 current_room_index = 0
 
+
+resources = [
+    {
+        moss = 0
+    }
+]
+
 def create_room(visits: int = 0):
     """Create a single room map (ROOM_WIDTH x ROOM_HEIGHT) with walls, events, enemies and optionally a fountain.
     Returns a dict with keys: 'map', 'enemies', 'teleport', 'fountain'.
