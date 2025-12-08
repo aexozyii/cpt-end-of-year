@@ -24,6 +24,10 @@ FLOOR_CHAR = '.'
 player_y, player_x = 4, 10
 # how many times the player has opened/visited the map
 map_visit_count = 0
+# current floor number (1-based). Incremented when player progresses floors.
+current_floor = 1
+# track which floors' bosses have been defeated
+floor_boss_defeated = {}
 
 # Multi-room world: generate several separate room-maps (each ROOM_WIDTH x ROOM_HEIGHT)
 # `rooms` is a list where each entry is a dict: {'map': [...], 'enemies': {...}, 'teleport': {...}, 'fountain': (y,x) or None}
@@ -112,22 +116,46 @@ def create_room(visits: int = 0):
         # skip if enemy position overlaps with interactive elements (vegetation, water, treasure, torches)
         if game_map[ey][ex] not in (FLOOR_CHAR, '!'):
             continue
-        if random.random() < 0.6:
-            enemies_local[(ey, ex)] = {
-                'name': 'Human',
-                'hp': 80 + visits * 10,
-                'atk': 4 + visits,
-                'reward': int(200 * (1 + 0.2 * visits)),
-                'ascii': '  ,      ,\\n (\\_/)\\n (o.o)\\n  >^ '
-            }
+        # select pool based on floor/visits: make later floors favor tougher enemies
+        floor = max(0, int(visits))
+        # simple probability pools per floor (can be extended)
+        if floor == 0:
+            choices = [('human', 0.7), ('dart_monkey', 0.3)]
+        elif floor == 1:
+            choices = [('human', 0.4), ('dart_monkey', 0.6)]
+        elif floor == 2:
+            choices = [('dart_monkey', 0.8), ('human', 0.2)]
         else:
-            enemies_local[(ey, ex)] = {
-                'name': 'Dart Monkey',
-                'hp': 130 + visits * 18,
-                'atk': 12 + visits * 2,
-                'reward': int(450 * (1 + 0.2 * visits)),
-                'ascii': "  ,--.\\n (____)\\n /||\\\\\\n  ||"
-            }
+            choices = [('dart_monkey', 1.0)]
+        r = random.random()
+        cum = 0.0
+        enemy_key = choices[-1][0]
+        for k, p in choices:
+            cum += float(p)
+            if r < cum:
+                enemy_key = k
+                break
+        # use the centralized instancer to scale stats by visits
+        try:
+            enemies_local[(ey, ex)] = create_enemy_instance(enemy_key, visits)
+        except Exception:
+            # fallback to simple templates if instancer missing
+            if enemy_key == 'human':
+                enemies_local[(ey, ex)] = {
+                    'name': 'Human',
+                    'hp': 80 + visits * 10,
+                    'atk': 4 + visits,
+                    'reward': int(200 * (1 + 0.2 * visits)),
+                    'ascii': '  ,      ,\\n (\\_/)\\n (o.o)\\n  >^ '
+                }
+            else:
+                enemies_local[(ey, ex)] = {
+                    'name': 'Dart Monkey',
+                    'hp': 130 + visits * 18,
+                    'atk': 12 + visits * 2,
+                    'reward': int(450 * (1 + 0.2 * visits)),
+                    'ascii': "  ,--.\\n (____)\\n /||\\\\\\n  ||"
+                }
 
     # optional fountain
     fountain_pos = None

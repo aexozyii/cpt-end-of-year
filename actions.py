@@ -300,10 +300,34 @@ def move(dx, dy):
             state.last_move_time = now
             render.render_map()
             return
-        # If at last room (index 4), move to next floor
+        # If at last room (index len-1), allow moving to next floor only if floor boss was defeated
         elif getattr(state, 'rooms', None) and len(state.rooms) > 0 and state.current_room_index == len(state.rooms) - 1:
+            # check for any remaining boss in the current rooms
+            boss_alive = False
+            try:
+                for r in getattr(state, 'rooms', []):
+                    for e in r.get('enemies', {}).values():
+                        if isinstance(e, dict) and e.get('is_boss'):
+                            boss_alive = True
+                            break
+                    if boss_alive:
+                        break
+            except Exception:
+                boss_alive = False
+            if boss_alive:
+                render.flash_message('Defeat the floor boss before progressing to the next floor')
+                return
+            # Do not allow floors beyond 5 (final floor)
+            if getattr(state, 'current_floor', 1) >= 5:
+                render.flash_message('You have reached the final floor. No further floors.')
+                return
             # Advance to next floor and generate new rooms
             state.map_visit_count = getattr(state, 'map_visit_count', 0) + 1
+            # increment explicit floor counter
+            try:
+                state.current_floor = int(getattr(state, 'current_floor', 1)) + 1
+            except Exception:
+                state.current_floor = getattr(state, 'current_floor', 1) + 1
             state.rooms = state.create_rooms(5, visits=state.map_visit_count)
             state.current_room_index = 0
             state.load_room(0)
@@ -332,10 +356,33 @@ def move(dx, dy):
             state.last_move_time = now
             render.render_map()
             return
-        # If at last room (index 4), move to next floor
+        # If at last room (index len-1), allow moving to next floor only if floor boss was defeated
         elif getattr(state, 'rooms', None) and len(state.rooms) > 0 and state.current_room_index == len(state.rooms) - 1:
+            # check for any remaining boss in the current rooms
+            boss_alive = False
+            try:
+                for r in getattr(state, 'rooms', []):
+                    for e in r.get('enemies', {}).values():
+                        if isinstance(e, dict) and e.get('is_boss'):
+                            boss_alive = True
+                            break
+                    if boss_alive:
+                        break
+            except Exception:
+                boss_alive = False
+            if boss_alive:
+                render.flash_message('Defeat the floor boss before progressing to the next floor')
+                return
+            # Do not allow floors beyond 5 (final floor)
+            if getattr(state, 'current_floor', 1) >= 5:
+                render.flash_message('You have reached the final floor. No further floors.')
+                return
             # Advance to next floor and generate new rooms
             state.map_visit_count = getattr(state, 'map_visit_count', 0) + 1
+            try:
+                state.current_floor = int(getattr(state, 'current_floor', 1)) + 1
+            except Exception:
+                state.current_floor = getattr(state, 'current_floor', 1) + 1
             state.rooms = state.create_rooms(5, visits=state.map_visit_count)
             state.current_room_index = 0
             state.load_room(0)
@@ -612,7 +659,26 @@ def _battle_win():
         if enemy.get('is_boss'):
             # Place player at room index 4 (the 5th room - room "5" of the floor)
             state.current_room_index = 4
-            render.flash_message(f'Boss defeated! Reached floor 5 of this floor...')
+            render.flash_message(f'Boss defeated! You may now progress to the next floor.')
+            # mark this floor's boss as defeated and remove boss from the persistent room data
+            try:
+                # remove boss from the room data structure for the current room index
+                cri = int(getattr(state, 'current_room_index', 0))
+                if getattr(state, 'rooms', None) and 0 <= cri < len(state.rooms):
+                    try:
+                        state.rooms[cri].get('enemies', {}).pop(state.current_battle_pos, None)
+                    except Exception:
+                        pass
+                # mark boss defeated for this floor
+                fb = getattr(state, 'floor_boss_defeated', {})
+                try:
+                    floor = int(getattr(state, 'current_floor', 1))
+                except Exception:
+                    floor = getattr(state, 'current_floor', 1)
+                fb[floor] = True
+                state.floor_boss_defeated = fb
+            except Exception:
+                pass
             # upgrade shop contents for deeper floors (append stronger items once)
             try:
                 existing_names = {i.get('name') for i in state.shop_items}
