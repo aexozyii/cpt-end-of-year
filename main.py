@@ -12,7 +12,7 @@ import state
 
 count = 0
 per_click = 1
-game_state = 'menu'
+game_state = 'start_menu'
 movement_lock = threading.Lock()
 last_space_time = 0.0
 SAVE_FILE = os.path.join(os.path.dirname(__file__), 'save.json')

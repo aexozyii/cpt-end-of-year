@@ -27,10 +27,12 @@ rooms = [] # list of room dicts
 current_room_index = 0
 current_map = [] # active map layout
 enemies = {} # active enemies in the current room
-TELEPORTS = {} # active teleports in the current room
-EXITS = {} # active exits in the current room
+TELEPORTS = {}  # active teleports in the current room
+EXITS = {}  # active exits in the current room
+
 
 # --- Core Run State & Global Variables ---
+
 count = 0
 per_click = 1
 run_max_count = 0

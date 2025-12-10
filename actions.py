@@ -418,6 +418,289 @@ def battle_attack():
     render.display_battle()
 
 
+def _battle_win():
+    enemy = state.current_battle_enemy or {}
+    reward = enemy.get('reward', 0)
+    state.count += reward
+    # show victory splash with earned resources
+    try:
+        render.display_victory_splash(reward)
+        time.sleep(2)
+    except Exception:
+        pass
+    try:
+        if state.count > getattr(state, 'run_max_count', 0):
+            state.run_max_count = state.count
+    except Exception:
+        pass
+    try:
+        del state.enemies[state.current_battle_pos]
+    except Exception:
+        pass
+    state.current_battle_enemy = None
+    state.current_battle_pos = None
+    state.current_battle_status = {}
+    # if this was a boss, move to the last room of the current floor (room 5 out of 5)
+    # and prepare for the next floor on the next room transition
+    try:
+        if enemy.get('is_boss'):
+            # Place player at room index 4 (the 5th room - room "5" of the floor)
+            state.current_room_index = 4
+            render.flash_message(f'Boss defeated! Reached floor 5 of this floor...')
+            # upgrade shop contents for deeper floors (append stronger items once)
+            try:
+                existing_names = {i.get('name') for i in state.shop_items}
+                high_items = [
+                    {'key': '9', 'name': 'Greater Sword', 'cost': 800, 'type': 'weapon', 'amount': 20, 'purchased': False},
+                    {'key': '10', 'name': 'Elite Armour', 'cost': 700, 'type': 'armour', 'amount': 20, 'purchased': False},
+                    {'key': '11', 'name': 'Mega Potion', 'cost': 450, 'type': 'consumable', 'subtype': 'heal', 'amount': 400, 'purchased': False},
+                ]
+                for it in high_items:
+                    if it['name'] not in existing_names:
+                        state.shop_items.append(it)
+            except Exception:
+                pass
+            # increase the ceiling on action upgrades so players can progress further
+            try:
+                for a in getattr(state, 'action_upgrades', []):
+                    a['max_level'] = int(a.get('max_level', 1)) + 1
+            except Exception:
+                pass
+    except Exception:
+        pass
+    state.game_state = 'explore'
+    render.clear_screen()
+    render.render_map()
+    persistence.save_game()
+
+
+def _battle_lose():
+    render.display_death_splash()
+    time.sleep(3)
+    try:
+        run_best = int(getattr(state, 'run_max_count', 0))
+    except Exception:
+        run_best = 0
+    meta_reward = max(1, run_best // 1000)
+    state.meta_currency = getattr(state, 'meta_currency', 0) + meta_reward
+    persistence.save_game()
+    state.current_battle_enemy = None
+    state.current_battle_pos = None
+    state.current_battle_status = {}
+    state.game_state = 'meta'
+    render.display_meta_upgrades(meta_reward)
+
+
+def _enemy_retaliate(enemy):
+    # compute enemy attack after debuff
+    atk = max(0, enemy.get('atk', 0) - state.current_battle_status.get('enemy_debuff', 0))
+    # compute block from defence and shield
+    shield = state.current_battle_status.get('player_shield', 0)
+    defense = getattr(state, 'defense', 0)
+    damage = max(0, atk - (defense + shield))
+    # consume shield
+    state.current_battle_status['player_shield'] = max(0, shield - max(0, atk - defense))
+    if damage > 0:
+        state.player_hp -= damage
+    # enemy may have special effects (e.g., Teto stun)
+    try:
+        special = enemy.get('special')
+    except Exception:
+        special = None
+    if special and isinstance(special, dict):
+        if special.get('type') == 'stun':
+            try:
+                import random as _random
+                if _random.random() < float(special.get('chance', 0)):
+                    # apply stun: mark player stunned for duration turns
+                    dur = int(special.get('duration', 1))
+                    state.current_battle_status['player_stunned'] = True
+                    state.current_battle_status['stun_duration'] = dur
+                    render.flash_message(f"{enemy.get('name','Enemy')} stunned you for {dur} turn(s)!")
+            except Exception:
+                pass
+    # check death
+    if state.player_hp <= 0:
+        _battle_lose()
+        return False
+    return True
+
+
+def _get_action_upgrade_bonus(action_id: str) -> int:
+    """Return the cumulative bonus amount for an action upgrade id."""
+    try:
+        total = 0
+        for upg in getattr(state, 'action_upgrades', []):
+            if upg.get('id') == action_id:
+                total += int(upg.get('level', 0)) * int(upg.get('amount', 0))
+        return total
+    except Exception:
+        return 0
+
+
+def execute_code():
+    """Red: direct attack (resourceless)."""
+    if state.game_state != 'battle' or not state.current_battle_enemy:
+        return
+    # if stunned, player cannot perform this action (but enemy still retaliates)
+    if state.current_battle_status.get('player_stunned', False):
+        # consume one stun turn
+        state.current_battle_status['stun_duration'] = state.current_battle_status.get('stun_duration', 0) - 1
+        if state.current_battle_status['stun_duration'] <= 0:
+            state.current_battle_status['player_stunned'] = False
+            state.current_battle_status['stun_duration'] = 0
+        render.flash_message('You are stunned and cannot act this turn!')
+        alive = _enemy_retaliate(state.current_battle_enemy)
+        if alive:
+            render.display_battle()
+        return
+    cost = 1
+    sp = state.current_battle_status.get('skill_points', 0)
+    if sp < cost:
+        render.flash_message('Not enough Skill Points')
+        return
+    state.current_battle_status['skill_points'] = sp - cost
+    enemy = state.current_battle_enemy
+    # base damage from weapon/attack plus player buff and execute upgrades
+    base = int(state.attack + state.current_battle_status.get('player_buff', 0))
+    bonus = _get_action_upgrade_bonus('execute_power')
+    damage = max(1, int(base + bonus))
+    enemy['hp'] -= damage
+    render.flash_message(f'Execute Code deals {damage} damage (-{cost} SP)')
+    if enemy['hp'] <= 0:
+        _battle_win()
+        return
+    # enemy retaliates
+    alive = _enemy_retaliate(enemy)
+    if alive:
+        render.display_battle()
+
+
+def defend_code():
+    """Blue: gain a temporary shield that blocks incoming damage."""
+    if state.game_state != 'battle' or not state.current_battle_enemy:
+        return
+    # if stunned, player cannot perform this action (but enemy still retaliates)
+    if state.current_battle_status.get('player_stunned', False):
+        state.current_battle_status['stun_duration'] = state.current_battle_status.get('stun_duration', 0) - 1
+        if state.current_battle_status['stun_duration'] <= 0:
+            state.current_battle_status['player_stunned'] = False
+            state.current_battle_status['stun_duration'] = 0
+        render.flash_message('You are stunned and cannot act this turn!')
+        alive = _enemy_retaliate(state.current_battle_enemy)
+        if alive:
+            render.display_battle()
+        return
+    cost = 2
+    sp = state.current_battle_status.get('skill_points', 0)
+    if sp < cost:
+        render.flash_message('Not enough Skill Points')
+        return
+    state.current_battle_status['skill_points'] = sp - cost
+    # shield scales with player's defense stat plus defend upgrades
+    base = 8
+    shield_amount = base + int(getattr(state, 'defense', 0) * 0.5)
+    shield_amount += _get_action_upgrade_bonus('defend_power')
+    state.current_battle_status['player_shield'] = state.current_battle_status.get('player_shield', 0) + shield_amount
+    render.flash_message(f'Defend Code grants {shield_amount} shield (-{cost} SP)')
+    # enemy retaliates (shield will absorb)
+    alive = _enemy_retaliate(state.current_battle_enemy)
+    if alive:
+        render.display_battle()
+
+
+def recover():
+    """White: heal the player."""
+    if state.game_state != 'battle' or not state.current_battle_enemy:
+        return
+    # Recover: regenerate skill points (does not heal HP)
+    sp = state.current_battle_status.get('skill_points', 0)
+    sp_max = state.current_battle_status.get('skill_points_max', sp)
+    regen = 3 + _get_action_upgrade_bonus('recover_power')
+    new_sp = min(sp_max, sp + regen)
+    gained = new_sp - sp
+    if gained <= 0:
+        render.flash_message('Skill Points already full')
+        return
+    state.current_battle_status['skill_points'] = new_sp
+    render.flash_message(f'Recover restores {gained} SP (+{gained} SP)')
+    # if player was stunned, this counts as the allowed action and reduces stun duration
+    if state.current_battle_status.get('player_stunned', False):
+        state.current_battle_status['stun_duration'] = state.current_battle_status.get('stun_duration', 0) - 1
+        if state.current_battle_status['stun_duration'] <= 0:
+            state.current_battle_status['player_stunned'] = False
+            state.current_battle_status['stun_duration'] = 0
+    # enemy retaliates
+    alive = _enemy_retaliate(state.current_battle_enemy)
+    if alive:
+        render.display_battle()
+
+
+def hack():
+    """Black: debuff enemy attack (reduce enemy atk for the fight)."""
+    if state.game_state != 'battle' or not state.current_battle_enemy:
+        return
+    # if stunned, player cannot perform this action (but enemy still retaliates)
+    if state.current_battle_status.get('player_stunned', False):
+        state.current_battle_status['stun_duration'] = state.current_battle_status.get('stun_duration', 0) - 1
+        if state.current_battle_status['stun_duration'] <= 0:
+            state.current_battle_status['player_stunned'] = False
+            state.current_battle_status['stun_duration'] = 0
+        render.flash_message('You are stunned and cannot act this turn!')
+        alive = _enemy_retaliate(state.current_battle_enemy)
+        if alive:
+            render.display_battle()
+        return
+    cost = 2
+    sp = state.current_battle_status.get('skill_points', 0)
+    if sp < cost:
+        render.flash_message('Not enough Skill Points')
+        return
+    state.current_battle_status['skill_points'] = sp - cost
+    reduce_amount = 3 + int(state.map_visit_count * 0.5) + _get_action_upgrade_bonus('hack_power')
+    # apply debuff but cap the total enemy_debuff to 10
+    prev = state.current_battle_status.get('enemy_debuff', 0)
+    new_debuff = prev + reduce_amount
+    DEBUFF_CAP = 10
+    if new_debuff > DEBUFF_CAP:
+        new_debuff = DEBUFF_CAP
+    state.current_battle_status['enemy_debuff'] = new_debuff
+    render.flash_message(f'Hack reduces enemy attack by {reduce_amount} (total debuff {new_debuff}/{DEBUFF_CAP}) (-{cost} SP)')
+    # enemy retaliates with reduced attack
+    alive = _enemy_retaliate(state.current_battle_enemy)
+    if alive:
+        render.display_battle()
+
+
+def debug_action():
+    """Green: buff player's attack for the fight."""
+    if state.game_state != 'battle' or not state.current_battle_enemy:
+        return
+    # if stunned, player cannot perform this action (but enemy still retaliates)
+    if state.current_battle_status.get('player_stunned', False):
+        state.current_battle_status['stun_duration'] = state.current_battle_status.get('stun_duration', 0) - 1
+        if state.current_battle_status['stun_duration'] <= 0:
+            state.current_battle_status['player_stunned'] = False
+            state.current_battle_status['stun_duration'] = 0
+        render.flash_message('You are stunned and cannot act this turn!')
+        alive = _enemy_retaliate(state.current_battle_enemy)
+        if alive:
+            render.display_battle()
+        return
+    cost = 2
+    sp = state.current_battle_status.get('skill_points', 0)
+    if sp < cost:
+        render.flash_message('Not enough Skill Points')
+        return
+    state.current_battle_status['skill_points'] = sp - cost
+    buff = max(1, int(state.attack * 0.4)) + _get_action_upgrade_bonus('debug_power')
+    state.current_battle_status['player_buff'] = state.current_battle_status.get('player_buff', 0) + buff
+    render.flash_message(f'Debug increases your attack by {buff} (-{cost} SP)')
+    # enemy retaliates
+    alive = _enemy_retaliate(state.current_battle_enemy)
+    if alive:
+        render.display_battle()
+
 def flee_battle():
     if state.game_state != 'battle':
         return

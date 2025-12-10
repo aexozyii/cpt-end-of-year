@@ -51,7 +51,7 @@ _last_render_height = 0
 
 def display_start_menu():
     """Display the initial start menu (New Game / Load Game)."""
-    if state.game_state != 'menu':
+    if state.game_state != 'start_menu':
         return
     clear_screen()
     lines = ['GAME MENU', '==========', '']
@@ -225,8 +225,25 @@ def render_map():
 
 
 def display_menu():
-    # Helper alias
-    display_start_menu()
+    if state.game_state != 'menu':
+        return
+    clear_screen()
+    # Build menu lines and include inventory hint if player has a bag
+    lines = [
+        'MAIN MENU',
+        '===========',
+        '',
+        '[R] Resources (incremental)',
+        '[M] Map',
+    ]
+    if state.has_bag:
+        lines.append('[I] Inventory')
+    lines.extend([
+        '[Q] Menu',
+        '[ESC] Quit Game',
+    ])
+    menu_text = '\n'.join(lines) + '\n'
+    print(center_text(menu_text))
 
 # --- Functions to handle state switching (needed for main.py bindings) ---
 
