@@ -26,7 +26,7 @@ ENEMY_TEMPLATES = {
         'ascii': "  ,--.\\n (____)\\n /||\\\\\\n  ||"
     },
     'teto_boss': {
-        'name': 'Teto (Boss)',
+        'name': 'Cameron (Boss)',
         'base_hp': 400,
         'base_atk': 25,
         'base_reward': 2000,
@@ -53,7 +53,7 @@ ENEMY_TEMPLATES = {
 ENEMY_SPAWN_POOL = {
     'common': ['human', 'goblin'],
     'uncommon': ['dart_monkey'],
-    'boss_room': ['teto_boss']
+    'boss_room': ['cameron_boss']
     # You can expand this for different room types or difficulties
 }
 
