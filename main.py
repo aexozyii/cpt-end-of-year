@@ -12,7 +12,7 @@ import state
 
 count = 0
 per_click = 1
-game_state = 'start_menu'
+game_state = 'menu'
 movement_lock = threading.Lock()
 last_space_time = 0.0
 SAVE_FILE = os.path.join(os.path.dirname(__file__), 'save.json')
@@ -150,9 +150,9 @@ def main():
     # start threads
     loops.movement_thread.start()
     loops.autosave_thread.start()
-    # show initial start menu
+    # show initial game menu
     import render as _render
-    _render.display_start_menu()
+    _render.display_menu()
     try:
         # non-blocking loop that checks for exit flag
         while not _should_exit:

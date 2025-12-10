@@ -20,7 +20,12 @@ WALL_CHAR = '│'  # vertical wall
 H_WALL_CHAR = '─'  # horizontal wall
 FLOOR_CHAR = '.'
 player_y, player_x = 4, 10
+# how many times the player has opened/visited the map
 map_visit_count = 0
+# current floor number (1-based). Incremented when player progresses floors.
+current_floor = 1
+# track which floors' bosses have been defeated
+floor_boss_defeated = {}
 
 # Multi-room world tracking (Variables used by the primary 'create_rooms' logic)
 rooms = [] # list of room dicts
